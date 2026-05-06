@@ -1,0 +1,18 @@
+# macOS / AppleDouble
+.DS_Store
+._*
+Thumbs.db
+
+# Backups
+*.bak
+*.bak-*
+*.backup
+
+# Editor leftovers
+*.swp
+*.swo
+*~
+
+# Local dev tools
+.idea/
+.vscode/
