@@ -20,6 +20,16 @@ define( 'MCM_SECURITY_VERSION', '1.4.0' );
 define( 'MCM_SECURITY_FILE', __FILE__ );
 define( 'MCM_SECURITY_DIR', plugin_dir_path( __FILE__ ) );
 
+// Self-update via publieke GitHub repo. Pikt nieuwste GitHub-release op
+// en biedt 'm aan via WP's normale update-flow (en dus ook MainWP).
+require_once MCM_SECURITY_DIR . 'vendor/plugin-update-checker/plugin-update-checker.php';
+$mcm_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+	'https://github.com/MarcoMCM/mcm-security-hardener/',
+	MCM_SECURITY_FILE,
+	'mcm-security-hardener'
+);
+$mcm_update_checker->setBranch( 'main' );
+
 require_once MCM_SECURITY_DIR . 'includes/class-notifier.php';
 require_once MCM_SECURITY_DIR . 'includes/class-wpconfig-manager.php';
 require_once MCM_SECURITY_DIR . 'includes/class-htaccess-manager.php';
