@@ -13,9 +13,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 class MCM_Lockdown_Manager {
 
 	/**
-	 * MCM eigenaar logins die NOOIT gelocked worden.
+	 * MCM-eigenaar logins die NOOIT gelocked worden.
+	 *
+	 * Configureer per site via een mu-plugin of wp-config:
+	 *   define( 'MCM_SECURITY_OWNERS', [ 'beheerder_login_1', 'beheerder_login_2' ] );
+	 *
+	 * Default leeg → klant-admins houden gewoon hun manage_options-bypass,
+	 * MCM-owner force-rights gelden alleen op sites waar je de constante zet.
 	 */
-	const MCM_OWNERS = [ 'MarcoMCM', 'marcomcm', 'marco' ];
+	public static function get_owners() {
+		if ( defined( 'MCM_SECURITY_OWNERS' ) && is_array( MCM_SECURITY_OWNERS ) ) {
+			return MCM_SECURITY_OWNERS;
+		}
+		return apply_filters( 'mcm_security_owners', [] );
+	}
 
 	private $settings = [];
 
@@ -56,7 +67,7 @@ class MCM_Lockdown_Manager {
 		if ( ! $user ) {
 			return $caps;
 		}
-		if ( ! in_array( $user->user_login, self::MCM_OWNERS, true ) ) {
+		if ( ! in_array( $user->user_login, self::get_owners(), true ) ) {
 			return $caps;
 		}
 
@@ -79,7 +90,7 @@ class MCM_Lockdown_Manager {
 	 * Forceer user_has_cap voor MCM eigenaar — als laatste safety net.
 	 */
 	public static function force_allcaps_for_owner( $allcaps, $caps, $args, $user ) {
-		if ( ! in_array( $user->user_login, self::MCM_OWNERS, true ) ) {
+		if ( ! in_array( $user->user_login, self::get_owners(), true ) ) {
 			return $allcaps;
 		}
 
@@ -106,7 +117,7 @@ class MCM_Lockdown_Manager {
 		if ( ! $user || ! $user->exists() ) {
 			return false;
 		}
-		return in_array( $user->user_login, self::MCM_OWNERS, true );
+		return in_array( $user->user_login, self::get_owners(), true );
 	}
 
 	/**
@@ -117,7 +128,7 @@ class MCM_Lockdown_Manager {
 		// MCM eigenaar: NOOIT locken, geen enkele hook registreren.
 		$user = wp_get_current_user();
 		if ( $user && $user->exists() ) {
-			if ( in_array( $user->user_login, self::MCM_OWNERS, true ) ) {
+			if ( in_array( $user->user_login, self::get_owners(), true ) ) {
 				return;
 			}
 			if ( current_user_can( 'manage_options' ) ) {
@@ -147,7 +158,7 @@ class MCM_Lockdown_Manager {
 	 */
 	public function filter_capabilities( $allcaps, $caps, $args, $user ) {
 		// MCM eigenaar wordt NOOIT gelocked.
-		if ( in_array( $user->user_login, self::MCM_OWNERS, true ) ) {
+		if ( in_array( $user->user_login, self::get_owners(), true ) ) {
 			return $allcaps;
 		}
 

@@ -3,7 +3,7 @@
  * Plugin Name: MCM Security Hardener
  * Plugin URI:  https://github.com/MarcoMCM/mcm-security-hardener
  * Description: Schrijft security-hardening regels naar wp-config.php en .htaccess, gebaseerd op SecuPress Pro-niveau instellingen.
- * Version: 1.4.1
+ * Version: 1.4.2
  * Author: MCM Websites
  * Author URI: https://mcmwebsites.nl
  * Update URI: https://github.com/MarcoMCM/mcm-security-hardener
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MCM_SECURITY_VERSION', '1.4.1' );
+define( 'MCM_SECURITY_VERSION', '1.4.2' );
 define( 'MCM_SECURITY_FILE', __FILE__ );
 define( 'MCM_SECURITY_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -114,8 +114,8 @@ final class MCM_Security_Hardener {
 			'lockdown_plugins'       => true,
 			'lockdown_themes'        => true,
 
-			// Login URL
-			'login_slug'             => 'inloggenwebsite',
+			// Login URL — leeg laten, jij vult per site een unieke slug in via Bulk Settings Manager
+			'login_slug'             => '',
 
 			// Human verification
 			'human_verification'       => true,
