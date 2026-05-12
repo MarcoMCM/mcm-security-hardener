@@ -564,7 +564,7 @@ class MCM_Admin_Page {
 				<!-- LOGIN URL -->
 				<div class="mcm-section">
 					<h2>Login URL Verbergen</h2>
-					<p class="description">Verbergt <code>/wp-login.php</code> en maakt een custom login-slug aan.</p>
+					<p class="description">Verbergt <code>/wp-login.php</code> en maakt een custom login-slug aan. De mail-instellingen staan in de sectie <strong>Klant toegang &amp; mail</strong> hieronder.</p>
 					<table class="form-table">
 						<tr>
 							<th scope="row"><label for="login_slug">Custom login slug</label></th>
@@ -585,62 +585,14 @@ class MCM_Admin_Page {
 								<?php endif; ?>
 							</td>
 						</tr>
-						<?php
-						$this->render_toggle(
-							'mail_admins_on_slug_change',
-							'Mail nieuwe login-URL na opslaan',
-							'Stuurt na een wijziging van de login-slug automatisch een e-mail met de nieuwe URL naar de hieronder geselecteerde beheerders. Het wachtwoord wordt nooit meegestuurd. Wordt niet getriggerd door de knop "Activeer Alles".',
-							$settings
-						);
-						?>
-						<tr>
-							<th scope="row">Ontvangers (beheerders)</th>
-							<td>
-								<?php
-								$selected_ids = isset( $settings['mail_admins_recipients'] ) && is_array( $settings['mail_admins_recipients'] )
-									? array_map( 'intval', $settings['mail_admins_recipients'] )
-									: [];
-
-								$users = self::get_eligible_mail_users();
-
-								if ( empty( $users ) ) {
-									echo '<p class="description"><em>Geen beheerders of MCM Klanten gevonden.</em></p>';
-								} else {
-									echo '<fieldset style="border:1px solid #ddd; padding:8px 12px; max-height:220px; overflow:auto; border-radius:3px;">';
-									foreach ( $users as $u ) {
-										$checked = in_array( (int) $u->ID, $selected_ids, true ) ? 'checked' : '';
-										// Rol-badge: admin of MCM Klant.
-										if ( user_can( $u, 'manage_options' ) ) {
-											$badge_html = '<span style="display:inline-block; padding:1px 6px; margin-left:6px; background:#e7f0fa; color:#0a4b78; border-radius:3px; font-size:10px; font-weight:600;">ADMIN</span>';
-										} else {
-											$badge_html = '<span style="display:inline-block; padding:1px 6px; margin-left:6px; background:#e8f5e9; color:#1b5e20; border-radius:3px; font-size:10px; font-weight:600;">MCM KLANT</span>';
-										}
-										printf(
-											'<label style="display:block; padding:3px 0;"><input type="checkbox" name="mail_admins_recipients[]" value="%d" %s /> %s%s &nbsp;<code style="font-size:11px; color:#666;">%s</code></label>',
-											(int) $u->ID,
-											$checked,
-											esc_html( $u->display_name ),
-											$badge_html,
-											esc_html( $u->user_email )
-										);
-									}
-									echo '</fieldset>';
-									echo '<p class="description">Vink aan welke ontvangers de mail moeten krijgen. Administrators &eacute;n MCM Klanten worden getoond.</p>';
-								}
-								?>
-								<p style="margin-top:12px;">
-									<button type="submit" name="mcm_security_action" value="send_login_url_now" class="button button-secondary">
-										Verstuur login-URL nu naar geselecteerde admins
-									</button>
-									<span class="description" style="margin-left:8px;">Verstuurt direct (zonder slug-wijziging). Slaat eerst je huidige selectie op.</span>
-								</p>
-							</td>
-						</tr>
 					</table>
 				</div>
 
 				<!-- BASIC AUTH (STAGING) -->
 				<?php $this->render_basic_auth_section( $settings ); ?>
+
+				<!-- KLANT TOEGANG & MAIL -->
+				<?php $this->render_klantmail_section( $settings ); ?>
 
 				<!-- DATABASE PREFIX -->
 				<?php if ( ! is_multisite() ) : ?>
@@ -877,11 +829,11 @@ class MCM_Admin_Page {
 			'staging' => [
 				'title'         => 'Staging-profiel actief — volg deze stappen om je klant toegang te geven:',
 				'steps'         => [
-					'Open <strong>Staging wachtwoordbeveiliging</strong> hieronder &rarr; klik <em>Activeer &amp; genereer wachtwoord</em>',
-					'Open <strong>Login URL Verbergen</strong> &rarr; vink in de ontvangerslijst de admins en MCM Klanten aan',
-					'Terug naar <strong>Staging wachtwoordbeveiliging</strong> &rarr; klik <em>Mail toegang (Basic Auth + login-URL) naar admins</em>',
+					'Open <strong>Staging wachtwoordbeveiliging</strong> &rarr; klik <em>Activeer &amp; genereer wachtwoord</em>',
+					'Open <strong>Klant toegang &amp; mail</strong> &rarr; vink admins en MCM Klanten aan in de ontvangerslijst',
+					'Klik in <strong>Klant toegang &amp; mail</strong> op <em>Verstuur toegangsmail (Basic Auth + login-URL)</em>',
 				],
-				'sections_open' => [ 'staging-wachtwoordbeveiliging-http-basic', 'login-url-verbergen' ],
+				'sections_open' => [ 'staging-wachtwoordbeveiliging-http-basic', 'klant-toegang-mail' ],
 			],
 			'basic' => [
 				'title'         => 'Basic-profiel actief — voorgestelde vervolgstap:',
@@ -894,9 +846,9 @@ class MCM_Admin_Page {
 				'title'         => 'Standard-profiel actief — voor verborgen WP-login:',
 				'steps'         => [
 					'Open <strong>Login URL Verbergen</strong> &rarr; vul een unieke <code>Custom login slug</code> in',
-					'(Optioneel) Vink ontvangers aan en klik <em>Verstuur login-URL nu</em> om de nieuwe URL te delen',
+					'(Optioneel) Open <strong>Klant toegang &amp; mail</strong>, vink ontvangers aan en klik <em>Verstuur alleen login-URL</em>',
 				],
-				'sections_open' => [ 'login-url-verbergen' ],
+				'sections_open' => [ 'login-url-verbergen', 'klant-toegang-mail' ],
 			],
 			'strict' => [
 				'title'         => 'Strict-profiel actief — voor verborgen WP-login:',
@@ -904,9 +856,100 @@ class MCM_Admin_Page {
 					'Open <strong>Login URL Verbergen</strong> &rarr; vul een unieke <code>Custom login slug</code> in',
 					'Test de site grondig &mdash; Strict blokkeert ook bepaalde user-agents en URL-patronen',
 				],
-				'sections_open' => [ 'login-url-verbergen' ],
+				'sections_open' => [ 'login-url-verbergen', 'klant-toegang-mail' ],
 			],
 		];
+	}
+
+	/**
+	 * Centrale "Klant toegang & mail" sectie. Bevat:
+	 *   - Auto-mail toggle (mail bij slug-wijziging)
+	 *   - Recipients lijst (admins + MCM Klanten met badge)
+	 *   - Knop "Verstuur login-URL nu" — alleen URL
+	 *   - Knop "Verstuur toegangsmail (Basic Auth + login-URL)" — combo,
+	 *     alleen zichtbaar als Basic Auth actief is + plain in cache
+	 *
+	 * Was eerder verspreid over Login URL sectie (recipients) en Basic Auth
+	 * sectie (combo-knop). Centraal is duidelijker.
+	 */
+	private function render_klantmail_section( $settings ) {
+		$selected_ids = isset( $settings['mail_admins_recipients'] ) && is_array( $settings['mail_admins_recipients'] )
+			? array_map( 'intval', $settings['mail_admins_recipients'] )
+			: [];
+		$users    = self::get_eligible_mail_users();
+		$ba_active = MCM_Basic_Auth::is_active();
+		$ba_plain  = $ba_active ? MCM_Basic_Auth::get_plain_password() : null;
+		?>
+		<div class="mcm-section">
+			<h2>Klant toegang &amp; mail</h2>
+			<p class="description">
+				Selecteer wie de toegangsmails ontvangt. Werkt voor zowel de
+				<strong>login-URL mail</strong> (na slug-wijziging) als de
+				<strong>combo-mail</strong> (Basic Auth + login-URL voor staging-klanten).
+			</p>
+
+			<table class="form-table">
+				<tr>
+					<th scope="row">Ontvangers</th>
+					<td>
+						<?php if ( empty( $users ) ) : ?>
+							<p class="description"><em>Geen beheerders of MCM Klanten gevonden.</em></p>
+						<?php else : ?>
+							<fieldset style="border:1px solid #ddd; padding:8px 12px; max-height:220px; overflow:auto; border-radius:3px;">
+							<?php foreach ( $users as $u ) :
+								$checked = in_array( (int) $u->ID, $selected_ids, true ) ? 'checked' : '';
+								if ( user_can( $u, 'manage_options' ) ) {
+									$badge_html = '<span style="display:inline-block; padding:1px 6px; margin-left:6px; background:#e7f0fa; color:#0a4b78; border-radius:3px; font-size:10px; font-weight:600;">ADMIN</span>';
+								} else {
+									$badge_html = '<span style="display:inline-block; padding:1px 6px; margin-left:6px; background:#e8f5e9; color:#1b5e20; border-radius:3px; font-size:10px; font-weight:600;">MCM KLANT</span>';
+								}
+								printf(
+									'<label style="display:block; padding:3px 0;"><input type="checkbox" name="mail_admins_recipients[]" value="%d" %s /> %s%s &nbsp;<code style="font-size:11px; color:#666;">%s</code></label>',
+									(int) $u->ID,
+									$checked,
+									esc_html( $u->display_name ),
+									$badge_html,
+									esc_html( $u->user_email )
+								);
+							endforeach; ?>
+							</fieldset>
+							<p class="description">Administrators &eacute;n MCM Klanten worden getoond. MCM Klant rol komt uit de Site Optimizer plugin.</p>
+						<?php endif; ?>
+					</td>
+				</tr>
+
+				<?php
+				$this->render_toggle(
+					'mail_admins_on_slug_change',
+					'Auto-mail bij wijziging login-slug',
+					'Stuurt automatisch de nieuwe login-URL naar bovenstaande ontvangers wanneer de slug verandert (alleen bij <em>Opslaan</em> of <em>Opslaan &amp; Toepassen</em>, niet bij <em>Activeer Alles</em>).',
+					$settings
+				);
+				?>
+			</table>
+
+			<div class="mcm-actions" style="margin-top:10px;">
+				<?php if ( $ba_active && $ba_plain ) : ?>
+					<button type="submit" name="mcm_security_action" value="send_access_mail" class="button button-primary">
+						Verstuur toegangsmail (Basic Auth + login-URL)
+					</button>
+				<?php elseif ( $ba_active && ! $ba_plain ) : ?>
+					<span class="description" style="display:inline-block; padding:6px 10px; background:#fff3cd; border-left:3px solid #ffc107;">
+						Basic Auth wachtwoord >30 min uit cache &mdash; ga naar <strong>Staging wachtwoordbeveiliging</strong> en klik <em>Regenereer</em> om opnieuw te kunnen mailen.
+					</span>
+				<?php endif; ?>
+				<button type="submit" name="mcm_security_action" value="send_login_url_now" class="button <?php echo $ba_active ? 'button-secondary' : 'button-primary'; ?>">
+					Verstuur alleen login-URL
+				</button>
+			</div>
+			<?php if ( ! $ba_active ) : ?>
+				<p class="description" style="margin-top:8px;">
+					Basic Auth staat uit &mdash; alleen de WordPress login-URL kan worden gemaild.
+					Activeer Basic Auth in de sectie hierboven als je staging-toegangsgegevens wilt versturen.
+				</p>
+			<?php endif; ?>
+		</div>
+		<?php
 	}
 
 	/**
@@ -987,11 +1030,6 @@ class MCM_Admin_Page {
 					<button type="submit" name="mcm_security_action" value="basic_auth_regenerate" class="button button-secondary">
 						Regenereer wachtwoord
 					</button>
-					<?php if ( $plain ) : ?>
-					<button type="submit" name="mcm_security_action" value="send_access_mail" class="button button-secondary">
-						Mail toegang (Basic Auth + login-URL) naar admins
-					</button>
-					<?php endif; ?>
 					<button type="submit" name="mcm_security_action" value="basic_auth_deactivate" class="button button-link-delete"
 						onclick="return confirm('Basic Auth uitschakelen? De staging site is daarna voor iedereen toegankelijk.');">
 						Uitschakelen
@@ -999,7 +1037,9 @@ class MCM_Admin_Page {
 				<?php endif; ?>
 			</div>
 			<p class="description" style="margin-top:8px;">
-				Mailen gebruikt dezelfde ontvangerslijst als hierboven (Login URL sectie).
+				<?php if ( $is_active ) : ?>
+					Mail de toegangsgegevens via de sectie <strong>Klant toegang &amp; mail</strong> hieronder.
+				<?php endif; ?>
 				<?php if ( $is_active && ! $plain ) : ?>
 					<br><strong>Wachtwoord niet meer in cache</strong> &mdash; klik <em>Regenereer</em> voor een nieuwe (oude wordt ongeldig).
 				<?php endif; ?>
