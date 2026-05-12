@@ -65,8 +65,8 @@ class MCM_Admin_Page {
 			$this->basic_auth_deactivate_action();
 		} elseif ( 'basic_auth_regenerate' === $action ) {
 			$this->basic_auth_regenerate_action();
-		} elseif ( 'basic_auth_send_mail' === $action ) {
-			$this->basic_auth_send_mail_action();
+		} elseif ( 'send_access_mail' === $action ) {
+			$this->send_access_mail_action();
 		} elseif ( 'quick_switch_profile' === $action ) {
 			$target = isset( $_POST['target_profile'] ) ? sanitize_key( $_POST['target_profile'] ) : '';
 			if ( $target ) {
@@ -201,19 +201,14 @@ class MCM_Admin_Page {
 		}
 	}
 
-	private function basic_auth_send_mail_action() {
+	/**
+	 * Verstuur één gecombineerde toegangsmail naar geselecteerde admins/MCM Klanten.
+	 * Bevat Basic Auth gegevens (als actief + plain bekend) + login-URL.
+	 */
+	private function send_access_mail_action() {
 		// Sla eerst de form-staat op zodat zojuist aangevinkte recipients meetellen.
 		$settings = $this->sanitize_input( $_POST );
 		update_option( self::OPTION_KEY, $settings );
-
-		$plain = MCM_Basic_Auth::get_plain_password();
-		if ( ! $plain ) {
-			$this->redirect( 'basic_auth_no_plain' );
-			return;
-		}
-		$user = isset( $settings[ MCM_Basic_Auth::SETTING_USER ] )
-			? $settings[ MCM_Basic_Auth::SETTING_USER ]
-			: 'staging';
 
 		$recipient_ids = ! empty( $settings['mail_admins_recipients'] ) ? (array) $settings['mail_admins_recipients'] : [];
 		if ( empty( $recipient_ids ) ) {
@@ -221,11 +216,25 @@ class MCM_Admin_Page {
 			return;
 		}
 
-		$sent = $this->send_basic_auth_mail( $recipient_ids, $user, $plain );
+		$ba_active = MCM_Basic_Auth::is_active();
+		$ba_plain  = $ba_active ? MCM_Basic_Auth::get_plain_password() : null;
+		$ba_user   = $ba_active && isset( $settings[ MCM_Basic_Auth::SETTING_USER ] )
+			? $settings[ MCM_Basic_Auth::SETTING_USER ]
+			: null;
+
+		// Als BA actief is maar plain niet meer beschikbaar → blokkeer (anders mail zonder wachtwoord = nutteloos).
+		if ( $ba_active && ! $ba_plain ) {
+			$this->redirect( 'basic_auth_no_plain' );
+			return;
+		}
+
+		$slug = isset( $settings['login_slug'] ) ? (string) $settings['login_slug'] : '';
+
+		$sent = $this->send_full_access_mail( $recipient_ids, $slug, $ba_user, $ba_plain );
 		if ( 0 === $sent ) {
 			$this->redirect( 'mail_none' );
 		} else {
-			$this->redirect_with( [ 'mcm-status' => 'basic_auth_mail_sent', 'mcm-count' => $sent ] );
+			$this->redirect_with( [ 'mcm-status' => 'access_mail_sent', 'mcm-count' => $sent ] );
 		}
 	}
 
@@ -238,11 +247,13 @@ class MCM_Admin_Page {
 	}
 
 	/**
-	 * Stuur Basic Auth credentials naar opgegeven user IDs.
+	 * Stuur EEN gecombineerde toegangsmail naar opgegeven user IDs.
+	 * Bevat Basic Auth gegevens (als $ba_user/$ba_plain meegegeven) + login-URL.
 	 */
-	private function send_basic_auth_mail( $recipient_ids, $user, $plain_password ) {
-		$site_name  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
-		$staging_url = home_url( '/' );
+	private function send_full_access_mail( $recipient_ids, $slug, $ba_user, $ba_plain ) {
+		$site_name = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+		$site_url  = home_url( '/' );
+		$login_url = $slug ? home_url( '/' . $slug ) : home_url( '/wp-login.php' );
 
 		$current = wp_get_current_user();
 		$by_who  = $current && $current->exists()
@@ -250,18 +261,40 @@ class MCM_Admin_Page {
 			: 'onbekend';
 		$timestamp = wp_date( 'd-m-Y H:i' );
 
-		$subject = sprintf( '[%s] Toegangsgegevens stagingbeveiliging', $site_name );
+		$has_ba = $ba_user && $ba_plain;
+
+		$subject = sprintf( '[%s] Toegangsgegevens', $site_name );
 
 		$body  = "Beste,\n\n";
-		$body .= sprintf( "Hieronder de toegangsgegevens voor de stagingbeveiliging van %s.\n", $site_name );
-		$body .= "Bij het bezoeken van de site verschijnt eerst een pop-up van je browser; vul daar onderstaande gegevens in.\n\n";
-		$body .= "Staging URL: {$staging_url}\n";
-		$body .= "Gebruikersnaam: {$user}\n";
-		$body .= "Wachtwoord:    {$plain_password}\n\n";
-		$body .= "Pas DAARNA verschijnt de normale WordPress-login (gebruik daar je bestaande WP-account).\n\n";
+		$body .= sprintf( "Hieronder de toegangsgegevens voor %s.\n\n", $site_name );
+
+		if ( $has_ba ) {
+			$body .= "═══ STAP 1: Sitebeveiliging (browser pop-up) ═══\n\n";
+			$body .= "Bij het openen van de site verschijnt eerst een pop-up van je browser.\n";
+			$body .= "Vul daar in:\n\n";
+			$body .= "Site: {$site_url}\n";
+			$body .= "Gebruikersnaam: {$ba_user}\n";
+			$body .= "Wachtwoord:    {$ba_plain}\n\n";
+			$body .= "═══ STAP 2: WordPress login ═══\n\n";
+			$body .= "Pas daarna verschijnt de normale WordPress-login. Gebruik je eigen WP-account.\n";
+		} else {
+			$body .= "═══ WordPress login ═══\n\n";
+		}
+
+		$body .= "Login-URL: {$login_url}\n";
+		if ( ! $slug ) {
+			$body .= "(standaard wp-login.php — geen custom slug ingesteld)\n";
+		}
+		$body .= "\nGebruik je bestaande WordPress gebruikersnaam en wachtwoord.\n\n";
+
+		$body .= "─────────────────────────────────────\n";
 		$body .= "Verstuurd door: {$by_who}\n";
 		$body .= "Tijdstip: {$timestamp}\n\n";
-		$body .= "Bewaar deze mail veilig — wachtwoorden in e-mail zijn nooit ideaal, dus delete na opslag.\n\n";
+
+		if ( $has_ba ) {
+			$body .= "Bewaar deze mail veilig en verwijder hem zodra je de gegevens hebt\n";
+			$body .= "opgeslagen — wachtwoorden in e-mail zijn nooit helemaal ideaal.\n\n";
+		}
 		$body .= "— MCM Security Hardener\n";
 
 		$headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
@@ -882,8 +915,8 @@ class MCM_Admin_Page {
 						Regenereer wachtwoord
 					</button>
 					<?php if ( $plain ) : ?>
-					<button type="submit" name="mcm_security_action" value="basic_auth_send_mail" class="button button-secondary">
-						Mail naar geselecteerde admins
+					<button type="submit" name="mcm_security_action" value="send_access_mail" class="button button-secondary">
+						Mail toegang (Basic Auth + login-URL) naar admins
 					</button>
 					<?php endif; ?>
 					<button type="submit" name="mcm_security_action" value="basic_auth_deactivate" class="button button-link-delete"
@@ -1387,12 +1420,12 @@ class MCM_Admin_Page {
 			return;
 		}
 
-		if ( 'basic_auth_mail_sent' === $status ) {
+		if ( 'access_mail_sent' === $status ) {
 			$count = isset( $_GET['mcm-count'] ) ? absint( $_GET['mcm-count'] ) : 0;
 			$msg   = sprintf(
 				_n(
-					'Basic Auth gegevens verstuurd naar %d ontvanger.',
-					'Basic Auth gegevens verstuurd naar %d ontvangers.',
+					'Toegangsmail (Basic Auth + login-URL) verstuurd naar %d ontvanger.',
+					'Toegangsmail (Basic Auth + login-URL) verstuurd naar %d ontvangers.',
 					$count,
 					'mcm-security-hardener'
 				),
