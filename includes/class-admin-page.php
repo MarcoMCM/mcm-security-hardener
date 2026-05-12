@@ -555,6 +555,8 @@ class MCM_Admin_Page {
 
 				<?php $this->render_profiles_section(); ?>
 
+				<?php $this->render_steps_block(); ?>
+
 				<?php $this->render_staging_detection(); ?>
 
 				<?php $this->render_action_buttons(); ?>
@@ -837,6 +839,77 @@ class MCM_Admin_Page {
 	}
 
 	/**
+	 * Stappen-blok bovenaan — toont op basis van actief profiel een
+	 * genummerde to-do lijst zodat duidelijk is welke vervolgstappen
+	 * relevant zijn. Aanvullend opent JS de relevante secties automatisch.
+	 */
+	private function render_steps_block() {
+		$active = get_option( 'mcm_security_active_profile', '' );
+		if ( ! $active ) {
+			return;
+		}
+
+		$cfg = $this->steps_config();
+		if ( empty( $cfg[ $active ] ) ) {
+			return;
+		}
+		$block = $cfg[ $active ];
+		?>
+		<div class="mcm-steps-block">
+			<h3>📋 <?php echo esc_html( $block['title'] ); ?></h3>
+			<ol>
+				<?php foreach ( $block['steps'] as $step ) : ?>
+					<li><?php echo wp_kses_post( $step ); ?></li>
+				<?php endforeach; ?>
+			</ol>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Configuratie voor stappen + auto-open per profiel.
+	 *
+	 * sections_open = section IDs die JS auto-open bij eerste bezoek
+	 * (matchen de slug die JS uit h2-tekst genereert).
+	 */
+	private function steps_config() {
+		return [
+			'staging' => [
+				'title'         => 'Staging-profiel actief — volg deze stappen om je klant toegang te geven:',
+				'steps'         => [
+					'Open <strong>Staging wachtwoordbeveiliging</strong> hieronder &rarr; klik <em>Activeer &amp; genereer wachtwoord</em>',
+					'Open <strong>Login URL Verbergen</strong> &rarr; vink in de ontvangerslijst de admins en MCM Klanten aan',
+					'Terug naar <strong>Staging wachtwoordbeveiliging</strong> &rarr; klik <em>Mail toegang (Basic Auth + login-URL) naar admins</em>',
+				],
+				'sections_open' => [ 'staging-wachtwoordbeveiliging-http-basic', 'login-url-verbergen' ],
+			],
+			'basic' => [
+				'title'         => 'Basic-profiel actief — voorgestelde vervolgstap:',
+				'steps'         => [
+					'(Optioneel) Open <strong>Login URL Verbergen</strong> als je <code>wp-login.php</code> wilt verbergen.',
+				],
+				'sections_open' => [],
+			],
+			'standard' => [
+				'title'         => 'Standard-profiel actief — voor verborgen WP-login:',
+				'steps'         => [
+					'Open <strong>Login URL Verbergen</strong> &rarr; vul een unieke <code>Custom login slug</code> in',
+					'(Optioneel) Vink ontvangers aan en klik <em>Verstuur login-URL nu</em> om de nieuwe URL te delen',
+				],
+				'sections_open' => [ 'login-url-verbergen' ],
+			],
+			'strict' => [
+				'title'         => 'Strict-profiel actief — voor verborgen WP-login:',
+				'steps'         => [
+					'Open <strong>Login URL Verbergen</strong> &rarr; vul een unieke <code>Custom login slug</code> in',
+					'Test de site grondig &mdash; Strict blokkeert ook bepaalde user-agents en URL-patronen',
+				],
+				'sections_open' => [ 'login-url-verbergen' ],
+			],
+		];
+	}
+
+	/**
 	 * UI sectie voor HTTP Basic Auth (staging).
 	 */
 	private function render_basic_auth_section( $settings ) {
@@ -945,14 +1018,33 @@ class MCM_Admin_Page {
 	 * - "mcm-profile-confirmation" wordt overgeslagen (= tijdelijke feedback-melding)
 	 */
 	private function render_collapsible_script() {
+		$active = get_option( 'mcm_security_active_profile', '' );
+		$cfg = $this->steps_config();
+		$auto_open = ( $active && ! empty( $cfg[ $active ]['sections_open'] ) )
+			? $cfg[ $active ]['sections_open']
+			: [];
 		?>
 		<script>
 		(function () {
 			var STORE_KEY = 'mcm_security_open_sections_v1';
+			// Versioned profile-key: als profile verandert, opnieuw auto-openen.
+			var PROFILE_APPLIED_KEY = 'mcm_security_profile_auto_open';
+			var activeProfile = <?php echo wp_json_encode( $active ); ?>;
+			var autoOpenSlugs = <?php echo wp_json_encode( $auto_open ); ?>;
 			var state = {};
 			try { state = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) {}
 			function save() {
 				try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+			}
+
+			// Bij profiel-wissel: pas auto-open eenmalig toe (overschrijft state).
+			var lastProfile = '';
+			try { lastProfile = localStorage.getItem(PROFILE_APPLIED_KEY) || ''; } catch (e) {}
+			var applyAutoOpen = ( activeProfile && activeProfile !== lastProfile );
+			if ( applyAutoOpen ) {
+				autoOpenSlugs.forEach(function (slug) { state[slug] = true; });
+				try { localStorage.setItem(PROFILE_APPLIED_KEY, activeProfile); } catch (e) {}
+				save();
 			}
 
 			var sections = document.querySelectorAll('.mcm-security-wrap .mcm-section');
@@ -1468,6 +1560,12 @@ class MCM_Admin_Page {
 			.mcm-toggle-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
 			.mcm-toggle input:checked + .mcm-toggle-slider { background-color: #2271b1; }
 			.mcm-toggle input:checked + .mcm-toggle-slider:before { transform: translateX(20px); }
+
+			/* Stappen-blok bovenaan (per actief profiel) */
+			.mcm-steps-block { background: #f0f6fc; border-left: 4px solid #2271b1; padding: 14px 20px; margin: 20px 0; border-radius: 4px; }
+			.mcm-steps-block h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+			.mcm-steps-block ol { margin: 0; padding-left: 22px; }
+			.mcm-steps-block li { margin: 6px 0; line-height: 1.5; }
 
 			/* Collapsible sections (JS voegt is-collapsible toe na page load) */
 			.mcm-section.is-collapsible { padding: 0; }
