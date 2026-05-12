@@ -555,8 +555,6 @@ class MCM_Admin_Page {
 
 				<?php $this->render_profiles_section(); ?>
 
-				<?php $this->render_steps_block(); ?>
-
 				<?php $this->render_staging_detection(); ?>
 
 				<?php $this->render_action_buttons(); ?>
@@ -770,34 +768,6 @@ class MCM_Admin_Page {
 				<?php $this->render_action_buttons(); ?>
 			</form>
 			<?php $this->render_collapsible_script(); ?>
-		</div>
-		<?php
-	}
-
-	/**
-	 * Stappen-blok bovenaan — toont op basis van actief profiel een
-	 * genummerde to-do lijst zodat duidelijk is welke vervolgstappen
-	 * relevant zijn. Aanvullend opent JS de relevante secties automatisch.
-	 */
-	private function render_steps_block() {
-		$active = get_option( 'mcm_security_active_profile', '' );
-		if ( ! $active ) {
-			return;
-		}
-
-		$cfg = $this->steps_config();
-		if ( empty( $cfg[ $active ] ) ) {
-			return;
-		}
-		$block = $cfg[ $active ];
-		?>
-		<div class="mcm-steps-block">
-			<h3>📋 <?php echo esc_html( $block['title'] ); ?></h3>
-			<ol>
-				<?php foreach ( $block['steps'] as $step ) : ?>
-					<li><?php echo wp_kses_post( $step ); ?></li>
-				<?php endforeach; ?>
-			</ol>
 		</div>
 		<?php
 	}
@@ -1227,6 +1197,22 @@ class MCM_Admin_Page {
 						<p class="description">
 							Alle instellingen kloppen exact volgens deze preset. <?php echo esc_html( $matched['description'] ); ?>
 						</p>
+
+						<?php
+						// Stappen voor het actieve profiel (bron: steps_config).
+						$steps_cfg = $this->steps_config();
+						if ( ! empty( $steps_cfg[ $detected_profile ]['steps'] ) ) :
+							$block = $steps_cfg[ $detected_profile ];
+						?>
+						<p style="margin-top:14px; margin-bottom:6px;">
+							<strong>📋 <?php echo esc_html( $block['title'] ); ?></strong>
+						</p>
+						<ol style="margin:0; padding-left:20px;">
+							<?php foreach ( $block['steps'] as $step ) : ?>
+								<li style="margin:4px 0;"><?php echo wp_kses_post( $step ); ?></li>
+							<?php endforeach; ?>
+						</ol>
+						<?php endif; ?>
 					</div>
 				</div>
 				<p>
