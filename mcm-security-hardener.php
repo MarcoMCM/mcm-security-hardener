@@ -3,7 +3,7 @@
  * Plugin Name: MCM Security Hardener
  * Plugin URI:  https://github.com/MarcoMCM/mcm-security-hardener
  * Description: Schrijft security-hardening regels naar wp-config.php en .htaccess, gebaseerd op SecuPress Pro-niveau instellingen.
- * Version: 1.7.1
+ * Version: 1.8.0
  * Author: MCM Websites
  * Author URI: https://mcmwebsites.nl
  * Update URI: https://github.com/MarcoMCM/mcm-security-hardener
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MCM_SECURITY_VERSION', '1.7.1' );
+define( 'MCM_SECURITY_VERSION', '1.8.0' );
 define( 'MCM_SECURITY_FILE', __FILE__ );
 define( 'MCM_SECURITY_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -32,6 +32,7 @@ $mcm_update_checker->setBranch( 'main' );
 
 require_once MCM_SECURITY_DIR . 'includes/class-notifier.php';
 require_once MCM_SECURITY_DIR . 'includes/class-staging-detector.php';
+require_once MCM_SECURITY_DIR . 'includes/class-basic-auth.php';
 require_once MCM_SECURITY_DIR . 'includes/class-wpconfig-manager.php';
 require_once MCM_SECURITY_DIR . 'includes/class-htaccess-manager.php';
 require_once MCM_SECURITY_DIR . 'includes/class-login-url-manager.php';
@@ -119,6 +120,10 @@ final class MCM_Security_Hardener {
 			'login_slug'                  => '',
 			'mail_admins_on_slug_change'  => false,
 			'mail_admins_recipients'      => [], // array of user IDs.
+
+			// Basic Auth (staging) — feature B
+			'basic_auth_enabled'          => false,
+			'basic_auth_user'             => 'staging',
 
 			// Human verification
 			'human_verification'       => true,

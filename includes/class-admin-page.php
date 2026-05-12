@@ -59,6 +59,14 @@ class MCM_Admin_Page {
 			$this->enable_all();
 		} elseif ( 'send_login_url_now' === $action ) {
 			$this->send_login_url_now_action();
+		} elseif ( 'basic_auth_activate' === $action ) {
+			$this->basic_auth_activate_action();
+		} elseif ( 'basic_auth_deactivate' === $action ) {
+			$this->basic_auth_deactivate_action();
+		} elseif ( 'basic_auth_regenerate' === $action ) {
+			$this->basic_auth_regenerate_action();
+		} elseif ( 'basic_auth_send_mail' === $action ) {
+			$this->basic_auth_send_mail_action();
 		} elseif ( 'quick_switch_profile' === $action ) {
 			$target = isset( $_POST['target_profile'] ) ? sanitize_key( $_POST['target_profile'] ) : '';
 			if ( $target ) {
@@ -165,6 +173,110 @@ class MCM_Admin_Page {
 			);
 			exit;
 		}
+	}
+
+	// ─── BASIC AUTH HANDLERS ──────────────────────────────────────────────
+
+	private function basic_auth_activate_action() {
+		$user   = isset( $_POST['basic_auth_user'] ) ? MCM_Basic_Auth::sanitize_user( $_POST['basic_auth_user'] ) : 'staging';
+		$result = MCM_Basic_Auth::activate( $user ?: 'staging' );
+		if ( is_wp_error( $result ) ) {
+			$this->redirect_with( [ 'mcm-status' => 'basic_auth_error', 'mcm-error' => rawurlencode( $result->get_error_message() ) ] );
+		} else {
+			$this->redirect_with( [ 'mcm-status' => 'basic_auth_activated' ] );
+		}
+	}
+
+	private function basic_auth_deactivate_action() {
+		MCM_Basic_Auth::deactivate();
+		$this->redirect( 'basic_auth_deactivated' );
+	}
+
+	private function basic_auth_regenerate_action() {
+		$result = MCM_Basic_Auth::regenerate_password();
+		if ( is_wp_error( $result ) ) {
+			$this->redirect_with( [ 'mcm-status' => 'basic_auth_error', 'mcm-error' => rawurlencode( $result->get_error_message() ) ] );
+		} else {
+			$this->redirect_with( [ 'mcm-status' => 'basic_auth_regenerated' ] );
+		}
+	}
+
+	private function basic_auth_send_mail_action() {
+		// Sla eerst de form-staat op zodat zojuist aangevinkte recipients meetellen.
+		$settings = $this->sanitize_input( $_POST );
+		update_option( self::OPTION_KEY, $settings );
+
+		$plain = MCM_Basic_Auth::get_plain_password();
+		if ( ! $plain ) {
+			$this->redirect( 'basic_auth_no_plain' );
+			return;
+		}
+		$user = isset( $settings[ MCM_Basic_Auth::SETTING_USER ] )
+			? $settings[ MCM_Basic_Auth::SETTING_USER ]
+			: 'staging';
+
+		$recipient_ids = ! empty( $settings['mail_admins_recipients'] ) ? (array) $settings['mail_admins_recipients'] : [];
+		if ( empty( $recipient_ids ) ) {
+			$this->redirect( 'mail_none' );
+			return;
+		}
+
+		$sent = $this->send_basic_auth_mail( $recipient_ids, $user, $plain );
+		if ( 0 === $sent ) {
+			$this->redirect( 'mail_none' );
+		} else {
+			$this->redirect_with( [ 'mcm-status' => 'basic_auth_mail_sent', 'mcm-count' => $sent ] );
+		}
+	}
+
+	/**
+	 * Helper: redirect met meerdere query-args.
+	 */
+	private function redirect_with( $args ) {
+		wp_safe_redirect( add_query_arg( $args, admin_url( 'tools.php?page=mcm-security' ) ) );
+		exit;
+	}
+
+	/**
+	 * Stuur Basic Auth credentials naar opgegeven user IDs.
+	 */
+	private function send_basic_auth_mail( $recipient_ids, $user, $plain_password ) {
+		$site_name  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+		$staging_url = home_url( '/' );
+
+		$current = wp_get_current_user();
+		$by_who  = $current && $current->exists()
+			? sprintf( '%s (%s)', $current->display_name, $current->user_email )
+			: 'onbekend';
+		$timestamp = wp_date( 'd-m-Y H:i' );
+
+		$subject = sprintf( '[%s] Toegangsgegevens stagingbeveiliging', $site_name );
+
+		$body  = "Beste,\n\n";
+		$body .= sprintf( "Hieronder de toegangsgegevens voor de stagingbeveiliging van %s.\n", $site_name );
+		$body .= "Bij het bezoeken van de site verschijnt eerst een pop-up van je browser; vul daar onderstaande gegevens in.\n\n";
+		$body .= "Staging URL: {$staging_url}\n";
+		$body .= "Gebruikersnaam: {$user}\n";
+		$body .= "Wachtwoord:    {$plain_password}\n\n";
+		$body .= "Pas DAARNA verschijnt de normale WordPress-login (gebruik daar je bestaande WP-account).\n\n";
+		$body .= "Verstuurd door: {$by_who}\n";
+		$body .= "Tijdstip: {$timestamp}\n\n";
+		$body .= "Bewaar deze mail veilig — wachtwoorden in e-mail zijn nooit ideaal, dus delete na opslag.\n\n";
+		$body .= "— MCM Security Hardener\n";
+
+		$headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
+
+		$sent = 0;
+		foreach ( $recipient_ids as $uid ) {
+			$u = get_user_by( 'id', (int) $uid );
+			if ( ! self::user_is_eligible_recipient( $u ) || empty( $u->user_email ) ) {
+				continue;
+			}
+			if ( wp_mail( $u->user_email, $subject, $body, $headers ) ) {
+				$sent++;
+			}
+		}
+		return $sent;
 	}
 
 	/**
@@ -322,6 +434,13 @@ class MCM_Admin_Page {
 		// Mail-bij-slug-wijziging.
 		$settings['mail_admins_on_slug_change'] = ! empty( $post['mail_admins_on_slug_change'] );
 		$settings['mail_admins_recipients']     = $this->sanitize_recipient_ids( isset( $post['mail_admins_recipients'] ) ? (array) $post['mail_admins_recipients'] : [] );
+
+		// Basic Auth — user-veld via form, enabled via dedicated handler.
+		$existing = get_option( self::OPTION_KEY, [] );
+		$settings[ MCM_Basic_Auth::SETTING_USER ]    = isset( $post['basic_auth_user'] )
+			? MCM_Basic_Auth::sanitize_user( $post['basic_auth_user'] )
+			: ( isset( $existing[ MCM_Basic_Auth::SETTING_USER ] ) ? $existing[ MCM_Basic_Auth::SETTING_USER ] : 'staging' );
+		$settings[ MCM_Basic_Auth::SETTING_ENABLED ] = ! empty( $existing[ MCM_Basic_Auth::SETTING_ENABLED ] );
 
 		return $settings;
 	}
@@ -484,6 +603,9 @@ class MCM_Admin_Page {
 						</tr>
 					</table>
 				</div>
+
+				<!-- BASIC AUTH (STAGING) -->
+				<?php $this->render_basic_auth_section( $settings ); ?>
 
 				<!-- DATABASE PREFIX -->
 				<?php if ( ! is_multisite() ) : ?>
@@ -677,6 +799,106 @@ class MCM_Admin_Page {
 				<?php $this->render_action_buttons(); ?>
 			</form>
 			<?php $this->render_collapsible_script(); ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * UI sectie voor HTTP Basic Auth (staging).
+	 */
+	private function render_basic_auth_section( $settings ) {
+		$is_staging = class_exists( 'MCM_Staging_Detector' ) ? MCM_Staging_Detector::is_staging() : false;
+		$is_active  = MCM_Basic_Auth::is_active();
+		$user       = isset( $settings[ MCM_Basic_Auth::SETTING_USER ] ) ? $settings[ MCM_Basic_Auth::SETTING_USER ] : 'staging';
+		$plain      = MCM_Basic_Auth::get_plain_password();
+		?>
+		<div class="mcm-section">
+			<h2>Staging wachtwoordbeveiliging (HTTP Basic Auth)</h2>
+			<p class="description">
+				Schermt de hele site af met een browser-popup vóór WordPress laadt.
+				Werkt <strong>alleen op staging</strong> &mdash; voorkomt dat je live-site per ongeluk dichtgaat.
+				Override mogelijk via <code>define( 'MCM_IS_STAGING', true );</code> in wp-config.
+			</p>
+
+			<?php if ( ! $is_staging ) : ?>
+				<p style="background:#f8d7da; color:#721c24; padding:10px 14px; border-radius:3px; border-left:4px solid #dc3545;">
+					<strong>Niet beschikbaar:</strong> deze site wordt niet als staging herkend.
+					Activeren is geblokkeerd om te voorkomen dat je per ongeluk je live-site afsluit.
+					Bekijk de Omgevingsdetectie-sectie hierboven of gebruik de override-constant.
+				</p>
+			<?php endif; ?>
+
+			<table class="form-table">
+				<tr>
+					<th scope="row">Status</th>
+					<td>
+						<?php if ( $is_active ) : ?>
+							<span class="mcm-badge mcm-badge-active">ACTIEF</span>
+							<span class="description" style="margin-left:8px;">Bezoekers krijgen eerst een wachtwoord-popup.</span>
+						<?php else : ?>
+							<span class="mcm-badge mcm-badge-inactive">NIET ACTIEF</span>
+						<?php endif; ?>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row"><label for="basic_auth_user">Gebruikersnaam</label></th>
+					<td>
+						<input type="text" id="basic_auth_user" name="basic_auth_user"
+							value="<?php echo esc_attr( $user ); ?>"
+							class="regular-text" maxlength="64" style="width: 200px;"
+							<?php echo $is_active ? 'readonly' : ''; ?> />
+						<p class="description">
+							Alleen letters, cijfers, <code>_</code> en <code>-</code>. Standaard: <code>staging</code>.
+							<?php if ( $is_active ) : ?>
+								<br><em>Vergrendeld zolang Basic Auth actief is &mdash; eerst uitschakelen om te wijzigen.</em>
+							<?php endif; ?>
+						</p>
+					</td>
+				</tr>
+
+				<?php if ( $plain ) : ?>
+				<tr>
+					<th scope="row">Plain wachtwoord</th>
+					<td>
+						<code style="display:inline-block; padding:6px 12px; background:#fff3cd; border:1px solid #ffc107; border-radius:3px; font-size:14px; user-select:all;"><?php echo esc_html( $plain ); ?></code>
+						<button type="button" class="button button-small" onclick="navigator.clipboard.writeText('<?php echo esc_js( $plain ); ?>'); this.textContent='Gekopieerd!'; setTimeout(()=>this.textContent='Kopieer',2000);">Kopieer</button>
+						<p class="description">
+							<strong>Bewaar nu</strong> &mdash; dit wachtwoord is nog max 30 minuten zichtbaar (in transient), daarna alleen via "Regenereer" een nieuwe maken.
+						</p>
+					</td>
+				</tr>
+				<?php endif; ?>
+			</table>
+
+			<?php if ( $is_staging ) : ?>
+			<div class="mcm-actions" style="margin-top:10px;">
+				<?php if ( ! $is_active ) : ?>
+					<button type="submit" name="mcm_security_action" value="basic_auth_activate" class="button button-primary">
+						Activeer &amp; genereer wachtwoord
+					</button>
+				<?php else : ?>
+					<button type="submit" name="mcm_security_action" value="basic_auth_regenerate" class="button button-secondary">
+						Regenereer wachtwoord
+					</button>
+					<?php if ( $plain ) : ?>
+					<button type="submit" name="mcm_security_action" value="basic_auth_send_mail" class="button button-secondary">
+						Mail naar geselecteerde admins
+					</button>
+					<?php endif; ?>
+					<button type="submit" name="mcm_security_action" value="basic_auth_deactivate" class="button button-link-delete"
+						onclick="return confirm('Basic Auth uitschakelen? De staging site is daarna voor iedereen toegankelijk.');">
+						Uitschakelen
+					</button>
+				<?php endif; ?>
+			</div>
+			<p class="description" style="margin-top:8px;">
+				Mailen gebruikt dezelfde ontvangerslijst als hierboven (Login URL sectie).
+				<?php if ( $is_active && ! $plain ) : ?>
+					<br><strong>Wachtwoord niet meer in cache</strong> &mdash; klik <em>Regenereer</em> voor een nieuwe (oude wordt ongeldig).
+				<?php endif; ?>
+			</p>
+			<?php endif; ?>
 		</div>
 		<?php
 	}
@@ -1142,6 +1364,11 @@ class MCM_Admin_Page {
 			'profile_switched' => [ 'success', 'Profiel geswitcht via de mismatch-melding.' ],
 			'error'   => [ 'error', 'Er is een fout opgetreden. Controleer of de bestanden schrijfbaar zijn.' ],
 			'mail_none' => [ 'warning', 'Geen mail verstuurd: er zijn geen ontvangers aangevinkt of geen geldige beheerders gevonden.' ],
+			'basic_auth_activated' => [ 'success', '<strong>Basic Auth geactiveerd</strong> &mdash; staging is nu wachtwoord-beveiligd. Bewaar het wachtwoord direct, of mail het naar je admins.' ],
+			'basic_auth_deactivated' => [ 'warning', 'Basic Auth uitgeschakeld &mdash; staging is weer voor iedereen toegankelijk.' ],
+			'basic_auth_regenerated' => [ 'success', 'Nieuw wachtwoord gegenereerd. Oude wachtwoord werkt niet meer.' ],
+			'basic_auth_no_plain' => [ 'warning', 'Plain wachtwoord niet meer in cache (>30 min). Klik <em>Regenereer wachtwoord</em> voor een nieuwe.' ],
+			'basic_auth_error' => [ 'error', 'Basic Auth fout' ],
 		];
 
 		if ( 'mail_sent' === $status ) {
@@ -1157,6 +1384,27 @@ class MCM_Admin_Page {
 				$count
 			);
 			printf( '<div class="notice notice-success is-dismissible"><p>%s</p></div>', esc_html( $msg ) );
+			return;
+		}
+
+		if ( 'basic_auth_mail_sent' === $status ) {
+			$count = isset( $_GET['mcm-count'] ) ? absint( $_GET['mcm-count'] ) : 0;
+			$msg   = sprintf(
+				_n(
+					'Basic Auth gegevens verstuurd naar %d ontvanger.',
+					'Basic Auth gegevens verstuurd naar %d ontvangers.',
+					$count,
+					'mcm-security-hardener'
+				),
+				$count
+			);
+			printf( '<div class="notice notice-success is-dismissible"><p>%s</p></div>', esc_html( $msg ) );
+			return;
+		}
+
+		if ( 'basic_auth_error' === $status ) {
+			$err = isset( $_GET['mcm-error'] ) ? sanitize_text_field( rawurldecode( $_GET['mcm-error'] ) ) : 'Onbekende fout.';
+			printf( '<div class="notice notice-error is-dismissible"><p><strong>Basic Auth fout:</strong> %s</p></div>', esc_html( $err ) );
 			return;
 		}
 
