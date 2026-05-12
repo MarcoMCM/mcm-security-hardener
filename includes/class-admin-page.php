@@ -676,7 +676,123 @@ class MCM_Admin_Page {
 
 				<?php $this->render_action_buttons(); ?>
 			</form>
+			<?php $this->render_collapsible_script(); ?>
 		</div>
+		<?php
+	}
+
+	/**
+	 * JS dat alle .mcm-section elementen omvormt naar collapsible blokken.
+	 *
+	 * - Default: dicht
+	 * - State per sectie onthouden in localStorage
+	 * - Profielen-sectie krijgt extra header-knoppen: "Toon profielen" + "Scan opnieuw"
+	 * - "mcm-profile-confirmation" wordt overgeslagen (= tijdelijke feedback-melding)
+	 */
+	private function render_collapsible_script() {
+		?>
+		<script>
+		(function () {
+			var STORE_KEY = 'mcm_security_open_sections_v1';
+			var state = {};
+			try { state = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) {}
+			function save() {
+				try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+			}
+
+			var sections = document.querySelectorAll('.mcm-security-wrap .mcm-section');
+			sections.forEach(function (section, idx) {
+				if (section.classList.contains('is-collapsible')) return;
+				if (section.classList.contains('mcm-profile-confirmation')) return;
+				var h2 = section.querySelector('h2');
+				if (!h2) return;
+
+				var slug = h2.textContent.trim().toLowerCase()
+					.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 40);
+				var sectionId = slug || ('sec-' + idx);
+				section.dataset.sectionId = sectionId;
+				section.classList.add('is-collapsible');
+
+				var header = document.createElement('div');
+				header.className = 'mcm-section-header';
+				header.tabIndex = 0;
+				header.setAttribute('role', 'button');
+				header.setAttribute('aria-expanded', 'false');
+				header.appendChild(h2);
+
+				if (section.classList.contains('mcm-profiles-section')) {
+					var actions = document.createElement('div');
+					actions.className = 'mcm-section-actions';
+
+					var toonBtn = document.createElement('button');
+					toonBtn.type = 'button';
+					toonBtn.className = 'button button-primary';
+					toonBtn.textContent = 'Toon profielen';
+					toonBtn.addEventListener('click', function (e) {
+						e.stopPropagation();
+						openSection(section);
+					});
+					actions.appendChild(toonBtn);
+
+					var existing = section.querySelector('button[value="run_detection"]');
+					if (existing) {
+						var clone = existing.cloneNode(true);
+						clone.textContent = 'Scan opnieuw';
+						clone.className = 'button button-secondary';
+						clone.addEventListener('click', function (e) { e.stopPropagation(); });
+						actions.appendChild(clone);
+					}
+					header.appendChild(actions);
+				}
+
+				var chev = document.createElement('span');
+				chev.className = 'mcm-chevron';
+				chev.innerHTML = '▼';
+				header.appendChild(chev);
+
+				var body = document.createElement('div');
+				body.className = 'mcm-section-body';
+				while (section.firstChild) {
+					body.appendChild(section.firstChild);
+				}
+
+				section.appendChild(header);
+				section.appendChild(body);
+
+				if (state[sectionId]) {
+					section.classList.add('is-open');
+					header.setAttribute('aria-expanded', 'true');
+				}
+
+				header.addEventListener('click', function (e) {
+					if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+					if (e.target.tagName === 'A' || e.target.closest('a')) return;
+					toggleSection(section);
+				});
+				header.addEventListener('keydown', function (e) {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						toggleSection(section);
+					}
+				});
+			});
+
+			function toggleSection(section) {
+				var isOpen = section.classList.toggle('is-open');
+				var hdr = section.querySelector('.mcm-section-header');
+				if (hdr) hdr.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+				state[section.dataset.sectionId] = isOpen;
+				save();
+			}
+			function openSection(section) {
+				section.classList.add('is-open');
+				var hdr = section.querySelector('.mcm-section-header');
+				if (hdr) hdr.setAttribute('aria-expanded', 'true');
+				state[section.dataset.sectionId] = true;
+				save();
+			}
+		})();
+		</script>
 		<?php
 	}
 
@@ -1071,6 +1187,29 @@ class MCM_Admin_Page {
 			.mcm-toggle-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
 			.mcm-toggle input:checked + .mcm-toggle-slider { background-color: #2271b1; }
 			.mcm-toggle input:checked + .mcm-toggle-slider:before { transform: translateX(20px); }
+
+			/* Collapsible sections (JS voegt is-collapsible toe na page load) */
+			.mcm-section.is-collapsible { padding: 0; }
+			.mcm-section.is-collapsible .mcm-section-header {
+				display: flex; align-items: center; gap: 12px;
+				padding: 14px 20px; cursor: pointer; user-select: none;
+				border-bottom: 1px solid transparent;
+			}
+			.mcm-section.is-collapsible.is-open .mcm-section-header { border-bottom-color: #eee; }
+			.mcm-section.is-collapsible .mcm-section-header h2 {
+				margin: 0; padding: 0; border: none; flex: 1; font-size: 16px; font-weight: 600;
+			}
+			.mcm-section.is-collapsible:hover .mcm-section-header h2 { color: #2271b1; }
+			.mcm-section.is-collapsible .mcm-section-actions { display: flex; gap: 6px; }
+			.mcm-section.is-collapsible .mcm-section-actions .button {
+				padding: 2px 10px; font-size: 12px; line-height: 1.8; min-height: 0;
+			}
+			.mcm-section.is-collapsible .mcm-chevron {
+				transition: transform 0.2s ease; font-size: 10px; color: #50575e; width: 14px; text-align: center;
+			}
+			.mcm-section.is-collapsible.is-open .mcm-chevron { transform: rotate(180deg); }
+			.mcm-section.is-collapsible .mcm-section-body { display: none; padding: 0 20px 15px; }
+			.mcm-section.is-collapsible.is-open .mcm-section-body { display: block; }
 
 			.mcm-profiles-section { background: #fff; }
 			.mcm-profile-confirmation { background: #f0f9f0; border-color: #46b450; }
