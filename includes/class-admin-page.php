@@ -16,6 +16,7 @@ class MCM_Admin_Page {
 		add_action( 'admin_menu', [ $this, 'add_menu' ] );
 		add_action( 'admin_init', [ $this, 'handle_form' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_styles' ] );
+		add_action( 'admin_notices', [ $this, 'render_mismatch_notice' ] );
 	}
 
 	public function add_menu() {
@@ -56,6 +57,20 @@ class MCM_Admin_Page {
 			$this->remove_rules();
 		} elseif ( 'enable_all' === $action ) {
 			$this->enable_all();
+		} elseif ( 'send_login_url_now' === $action ) {
+			$this->send_login_url_now_action();
+		} elseif ( 'quick_switch_profile' === $action ) {
+			$target = isset( $_POST['target_profile'] ) ? sanitize_key( $_POST['target_profile'] ) : '';
+			if ( $target ) {
+				$result = MCM_Profiles::apply( $target );
+				if ( is_wp_error( $result ) ) {
+					$this->redirect( 'error' );
+				} else {
+					$this->redirect( 'profile_switched' );
+				}
+			} else {
+				$this->redirect( 'error' );
+			}
 		} elseif ( 'reset_db_prefix_notice' === $action ) {
 			delete_option( MCM_DB_Prefix_Manager::NOTICE_DISMISS_OPTION );
 			$this->redirect( 'notice_reset' );
@@ -74,23 +89,160 @@ class MCM_Admin_Page {
 	}
 
 	private function save_settings() {
+		$old_slug = $this->get_current_slug();
 		$settings = $this->sanitize_input( $_POST );
 		update_option( self::OPTION_KEY, $settings );
+		$this->maybe_send_slug_change_mail( $old_slug, $settings );
 		$this->redirect( 'saved' );
 	}
 
 	private function apply_rules() {
+		$old_slug = $this->get_current_slug();
 		$settings = $this->sanitize_input( $_POST );
 		update_option( self::OPTION_KEY, $settings );
 
 		$config_result   = MCM_WPConfig_Manager::write( $settings );
 		$htaccess_result = MCM_Htaccess_Manager::write( $settings );
 
+		$this->maybe_send_slug_change_mail( $old_slug, $settings );
+
 		if ( is_wp_error( $config_result ) || is_wp_error( $htaccess_result ) ) {
 			$this->redirect( 'error' );
 		} else {
 			$this->redirect( 'applied' );
 		}
+	}
+
+	/**
+	 * Huidige (opgeslagen) login-slug uit de DB.
+	 */
+	private function get_current_slug() {
+		$current = get_option( self::OPTION_KEY, [] );
+		return isset( $current['login_slug'] ) ? (string) $current['login_slug'] : '';
+	}
+
+	/**
+	 * Wrapper: alleen mailen als de toggle aan staat én de slug daadwerkelijk
+	 * is gewijzigd. Wordt aangeroepen na save/apply.
+	 */
+	private function maybe_send_slug_change_mail( $old_slug, $settings ) {
+		if ( empty( $settings['mail_admins_on_slug_change'] ) ) {
+			return;
+		}
+		$new_slug = isset( $settings['login_slug'] ) ? (string) $settings['login_slug'] : '';
+		if ( $old_slug === $new_slug ) {
+			return; // niets veranderd.
+		}
+		$recipient_ids = ! empty( $settings['mail_admins_recipients'] ) ? (array) $settings['mail_admins_recipients'] : [];
+		if ( empty( $recipient_ids ) ) {
+			return;
+		}
+		$this->send_login_url_mail( $recipient_ids, $new_slug, true );
+	}
+
+	/**
+	 * Handler voor de "Verstuur nu" knop. Slaat eerst de huidige form-staat op
+	 * (zodat zojuist aangevinkte ontvangers meetellen), verstuurt daarna,
+	 * en redirect met een status die het aantal verzonden mails meegeeft.
+	 */
+	private function send_login_url_now_action() {
+		// Sla eerst de form-staat op zodat aangevinkte recipients meetellen.
+		$settings = $this->sanitize_input( $_POST );
+		update_option( self::OPTION_KEY, $settings );
+
+		$sent = $this->send_login_url_now();
+		if ( 0 === $sent ) {
+			$this->redirect( 'mail_none' );
+		} else {
+			wp_safe_redirect(
+				add_query_arg(
+					[
+						'mcm-status' => 'mail_sent',
+						'mcm-count'  => $sent,
+					],
+					admin_url( 'tools.php?page=mcm-security' )
+				)
+			);
+			exit;
+		}
+	}
+
+	/**
+	 * Verstuur de login-URL nu naar de huidige geselecteerde admins,
+	 * onafhankelijk van de toggle. Aangeroepen door de "Verstuur nu" knop.
+	 *
+	 * @return int Aantal verstuurde mails.
+	 */
+	private function send_login_url_now() {
+		$settings      = get_option( self::OPTION_KEY, [] );
+		$recipient_ids = ! empty( $settings['mail_admins_recipients'] ) ? (array) $settings['mail_admins_recipients'] : [];
+		if ( empty( $recipient_ids ) ) {
+			return 0;
+		}
+		$current_slug = isset( $settings['login_slug'] ) ? (string) $settings['login_slug'] : '';
+		return $this->send_login_url_mail( $recipient_ids, $current_slug, false );
+	}
+
+	/**
+	 * Pure mail-sender. Stuurt de login-URL naar opgegeven user IDs.
+	 *
+	 * Bewust via wp_mail() direct (NIET via MCM_Notifier): die mailt altijd
+	 * naar de plugin-eigenaar (Marco). Deze feature mailt juist naar door
+	 * Marco geselecteerde admins op die specifieke site.
+	 *
+	 * @param array  $recipient_ids User IDs (worden hier nogmaals tegen
+	 *                              manage_options gevalideerd).
+	 * @param string $slug          De login-slug (leeg = standaard wp-login.php).
+	 * @param bool   $is_change     True = mail meldt een wijziging,
+	 *                              False = mail meldt de huidige (handmatig verstuurd).
+	 * @return int Aantal verstuurde mails.
+	 */
+	private function send_login_url_mail( $recipient_ids, $slug, $is_change ) {
+		$site_name = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+		$home_url  = home_url( '/' );
+		$login_url = $slug ? home_url( '/' . $slug ) : home_url( '/wp-login.php' );
+
+		$current_user = wp_get_current_user();
+		$by_who       = $current_user && $current_user->exists()
+			? sprintf( '%s (%s)', $current_user->display_name, $current_user->user_email )
+			: 'onbekend';
+
+		$timestamp = wp_date( 'd-m-Y H:i' );
+
+		if ( $is_change ) {
+			$subject = sprintf( '[%s] Login-URL is gewijzigd', $site_name );
+			$intro   = sprintf( "De login-URL van %s is zojuist aangepast.\n\n", $site_name );
+			$by_label = 'Gewijzigd door';
+		} else {
+			$subject = sprintf( '[%s] Je login-URL', $site_name );
+			$intro   = sprintf( "Hierbij ter herinnering de login-URL van %s.\n\n", $site_name );
+			$by_label = 'Verstuurd door';
+		}
+
+		$body  = "Beste,\n\n" . $intro;
+		$body .= "Site: {$home_url}\n";
+		$body .= "Login-URL: {$login_url}\n";
+		if ( ! $slug ) {
+			$body .= "(Let op: er is geen custom login-slug ingesteld — er wordt ingelogd via de standaard /wp-login.php.)\n";
+		}
+		$body .= "\n{$by_label}: {$by_who}\n";
+		$body .= "Tijdstip: {$timestamp}\n\n";
+		$body .= "Bewaar deze mail veilig. Je gebruikersnaam en wachtwoord zijn niet gewijzigd; gebruik gewoon je bestaande inloggegevens.\n\n";
+		$body .= "— MCM Security Hardener\n";
+
+		$headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
+
+		$sent = 0;
+		foreach ( $recipient_ids as $user_id ) {
+			$user = get_user_by( 'id', (int) $user_id );
+			if ( ! self::user_is_eligible_recipient( $user ) || empty( $user->user_email ) ) {
+				continue;
+			}
+			if ( wp_mail( $user->user_email, $subject, $body, $headers ) ) {
+				$sent++;
+			}
+		}
+		return $sent;
 	}
 
 	private function remove_rules() {
@@ -108,6 +260,14 @@ class MCM_Admin_Page {
 		$settings['human_verification_delay'] = isset( $_POST['human_verification_delay'] )
 			? max( 1, min( 30, (int) $_POST['human_verification_delay'] ) )
 			: 3;
+
+		// Bewaar de mail-ontvangerslijst — anders raakt de eerder aangevinkte
+		// selectie kwijt als per ongeluk op "Activeer Alles" geklikt wordt.
+		$existing = get_option( self::OPTION_KEY, [] );
+		if ( ! empty( $existing['mail_admins_recipients'] ) ) {
+			$settings['mail_admins_recipients'] = $this->sanitize_recipient_ids( (array) $existing['mail_admins_recipients'] );
+		}
+
 		update_option( self::OPTION_KEY, $settings );
 
 		MCM_WPConfig_Manager::write( $settings );
@@ -159,7 +319,63 @@ class MCM_Admin_Page {
 			? max( 1, min( 30, (int) $post['human_verification_delay'] ) )
 			: 3;
 
+		// Mail-bij-slug-wijziging.
+		$settings['mail_admins_on_slug_change'] = ! empty( $post['mail_admins_on_slug_change'] );
+		$settings['mail_admins_recipients']     = $this->sanitize_recipient_ids( isset( $post['mail_admins_recipients'] ) ? (array) $post['mail_admins_recipients'] : [] );
+
 		return $settings;
+	}
+
+	/**
+	 * Bron-van-waarheid: wie mag onze plugin-mails ontvangen?
+	 *
+	 * Administrators (volledige toegang) én MCM Klanten (custom rol uit de
+	 * Site Optimizer plugin — die rol heeft géén manage_options maar moet
+	 * wél staging-credentials & login-URL kunnen ontvangen).
+	 *
+	 * @return array van WP_User objecten.
+	 */
+	public static function get_eligible_mail_users() {
+		return get_users(
+			[
+				'role__in' => [ 'administrator', 'mcm_klant' ],
+				'orderby'  => 'display_name',
+				'order'    => 'ASC',
+			]
+		);
+	}
+
+	/**
+	 * Mag deze user mail ontvangen? Centrale check, gebruikt door zowel
+	 * de UI-render als de sanitize-flow als de mail-sender.
+	 */
+	public static function user_is_eligible_recipient( $user ) {
+		if ( ! $user || ! ( $user instanceof WP_User ) ) {
+			return false;
+		}
+		if ( user_can( $user, 'manage_options' ) ) {
+			return true;
+		}
+		if ( in_array( 'mcm_klant', (array) $user->roles, true ) ) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Filter ingestuurde user IDs naar enkel users die mail mogen ontvangen
+	 * (admins of MCM Klant rol).
+	 */
+	private function sanitize_recipient_ids( $ids ) {
+		$clean = [];
+		foreach ( $ids as $id ) {
+			$id   = absint( $id );
+			$user = $id ? get_user_by( 'id', $id ) : false;
+			if ( self::user_is_eligible_recipient( $user ) ) {
+				$clean[] = $id;
+			}
+		}
+		return array_values( array_unique( $clean ) );
 	}
 
 	public function render_page() {
@@ -187,6 +403,8 @@ class MCM_Admin_Page {
 
 				<?php $this->render_profiles_section(); ?>
 
+				<?php $this->render_staging_detection(); ?>
+
 				<?php $this->render_action_buttons(); ?>
 
 				<!-- LOGIN URL -->
@@ -211,6 +429,57 @@ class MCM_Admin_Page {
 									</a>
 								</p>
 								<?php endif; ?>
+							</td>
+						</tr>
+						<?php
+						$this->render_toggle(
+							'mail_admins_on_slug_change',
+							'Mail nieuwe login-URL na opslaan',
+							'Stuurt na een wijziging van de login-slug automatisch een e-mail met de nieuwe URL naar de hieronder geselecteerde beheerders. Het wachtwoord wordt nooit meegestuurd. Wordt niet getriggerd door de knop "Activeer Alles".',
+							$settings
+						);
+						?>
+						<tr>
+							<th scope="row">Ontvangers (beheerders)</th>
+							<td>
+								<?php
+								$selected_ids = isset( $settings['mail_admins_recipients'] ) && is_array( $settings['mail_admins_recipients'] )
+									? array_map( 'intval', $settings['mail_admins_recipients'] )
+									: [];
+
+								$users = self::get_eligible_mail_users();
+
+								if ( empty( $users ) ) {
+									echo '<p class="description"><em>Geen beheerders of MCM Klanten gevonden.</em></p>';
+								} else {
+									echo '<fieldset style="border:1px solid #ddd; padding:8px 12px; max-height:220px; overflow:auto; border-radius:3px;">';
+									foreach ( $users as $u ) {
+										$checked = in_array( (int) $u->ID, $selected_ids, true ) ? 'checked' : '';
+										// Rol-badge: admin of MCM Klant.
+										if ( user_can( $u, 'manage_options' ) ) {
+											$badge_html = '<span style="display:inline-block; padding:1px 6px; margin-left:6px; background:#e7f0fa; color:#0a4b78; border-radius:3px; font-size:10px; font-weight:600;">ADMIN</span>';
+										} else {
+											$badge_html = '<span style="display:inline-block; padding:1px 6px; margin-left:6px; background:#e8f5e9; color:#1b5e20; border-radius:3px; font-size:10px; font-weight:600;">MCM KLANT</span>';
+										}
+										printf(
+											'<label style="display:block; padding:3px 0;"><input type="checkbox" name="mail_admins_recipients[]" value="%d" %s /> %s%s &nbsp;<code style="font-size:11px; color:#666;">%s</code></label>',
+											(int) $u->ID,
+											$checked,
+											esc_html( $u->display_name ),
+											$badge_html,
+											esc_html( $u->user_email )
+										);
+									}
+									echo '</fieldset>';
+									echo '<p class="description">Vink aan welke ontvangers de mail moeten krijgen. Administrators &eacute;n MCM Klanten worden getoond.</p>';
+								}
+								?>
+								<p style="margin-top:12px;">
+									<button type="submit" name="mcm_security_action" value="send_login_url_now" class="button button-secondary">
+										Verstuur login-URL nu naar geselecteerde admins
+									</button>
+									<span class="description" style="margin-left:8px;">Verstuurt direct (zonder slug-wijziging). Slaat eerst je huidige selectie op.</span>
+								</p>
 							</td>
 						</tr>
 					</table>
@@ -587,6 +856,122 @@ class MCM_Admin_Page {
 		<?php
 	}
 
+	/**
+	 * Toont een admin notice als de detectie niet matcht met het actieve profiel.
+	 * Voorbeelden:
+	 *   - Site herkend als staging, maar Standard/Strict profiel actief → suggest Staging
+	 *   - Site herkend als live, maar Staging-profiel actief → suggest Standard
+	 *   - Geen actief profiel + staging detected → suggest Staging
+	 *
+	 * Toont alleen voor users met manage_options (niet voor MCM Klanten).
+	 * Toont overal in admin (volgens Marco's voorkeur).
+	 */
+	public function render_mismatch_notice() {
+		// Alleen voor admins.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		// Vereist dat de detector + profiles class geladen zijn.
+		if ( ! class_exists( 'MCM_Staging_Detector' ) || ! class_exists( 'MCM_Profiles' ) ) {
+			return;
+		}
+
+		$is_staging      = MCM_Staging_Detector::is_staging();
+		$active_profile  = get_option( 'mcm_security_active_profile', '' );
+		$suggested       = null;
+		$reason          = '';
+
+		if ( $is_staging && 'staging' !== $active_profile ) {
+			$suggested = 'staging';
+			$reason    = 'Deze site wordt herkend als <strong>staging</strong>'
+				. ( $active_profile ? ', maar het profiel <strong>' . esc_html( ucfirst( $active_profile ) ) . '</strong> is actief.' : ', en er is nog geen profiel actief.' );
+		} elseif ( ! $is_staging && 'staging' === $active_profile ) {
+			$suggested = 'standard';
+			$reason    = 'Deze site wordt herkend als <strong>live</strong>, maar het <strong>Staging</strong>-profiel is nog actief.';
+		}
+
+		if ( ! $suggested ) {
+			return;
+		}
+
+		$profiles = MCM_Profiles::get_profiles();
+		$label    = isset( $profiles[ $suggested ]['label'] ) ? $profiles[ $suggested ]['label'] : ucfirst( $suggested );
+		?>
+		<div class="notice notice-warning">
+			<p>
+				<strong>MCM Security &mdash; profiel-mismatch:</strong>
+				<?php echo wp_kses_post( $reason ); ?>
+				Aanbevolen: switchen naar het <strong><?php echo esc_html( $label ); ?></strong>-profiel.
+			</p>
+			<form method="post" style="margin: 0 0 12px 0;">
+				<?php wp_nonce_field( 'mcm_security_save', self::NONCE ); ?>
+				<input type="hidden" name="target_profile" value="<?php echo esc_attr( $suggested ); ?>" />
+				<button type="submit" name="mcm_security_action" value="quick_switch_profile" class="button button-primary">
+					Switch naar <?php echo esc_html( $label ); ?>-profiel
+				</button>
+				<a href="<?php echo esc_url( admin_url( 'tools.php?page=mcm-security' ) ); ?>" class="button button-secondary" style="margin-left:6px;">
+					Bekijk MCM Security
+				</a>
+			</form>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Toont of de site als staging wordt herkend en welke signalen daarvoor zorgden.
+	 * Voorbereiding voor de Basic-Auth-feature: die mag straks alleen op staging draaien.
+	 */
+	private function render_staging_detection() {
+		$is_staging = MCM_Staging_Detector::is_staging();
+		$signals    = MCM_Staging_Detector::get_signals();
+		$explain    = MCM_Staging_Detector::explain();
+		$badge_cls  = $is_staging ? 'mcm-badge-active' : 'mcm-badge-inactive';
+		$badge_txt  = $is_staging ? 'Herkend als STAGING' : 'NIET herkend als staging (= live)';
+		?>
+		<div class="mcm-section">
+			<h2>Omgevingsdetectie</h2>
+			<p class="description">Voorbereidende detectie voor de Basic-Auth-feature (komt nog). Deze sectie activeert nog niets &mdash; laat alleen zien hoe de plugin deze site classificeert.</p>
+			<p style="margin: 10px 0;">
+				<span class="mcm-badge <?php echo esc_attr( $badge_cls ); ?>"><?php echo esc_html( $badge_txt ); ?></span>
+			</p>
+			<p class="description"><?php echo esc_html( $explain ); ?></p>
+			<table class="form-table" style="margin-top: 8px;">
+				<thead>
+					<tr>
+						<th style="width:30%;">Signaal</th>
+						<th style="width:15%;">Match?</th>
+						<th>Waarde</th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ( $signals as $signal ) : ?>
+					<tr>
+						<td>
+							<strong><?php echo esc_html( $signal['name'] ); ?></strong><br>
+							<span class="description"><?php echo esc_html( $signal['description'] ); ?></span>
+						</td>
+						<td>
+							<?php if ( ! empty( $signal['matched'] ) ) : ?>
+								<span style="color:#155724; font-weight:600;">&#10004; ja</span>
+							<?php else : ?>
+								<span style="color:#666;">&minus; nee</span>
+							<?php endif; ?>
+						</td>
+						<td><code><?php echo esc_html( $signal['value'] ); ?></code></td>
+					</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+			<p class="description" style="margin-top:10px;">
+				<strong>Override:</strong> via <code>define( 'MCM_IS_STAGING', true );</code> in <code>wp-config.php</code> kun je staging forceren, of met <code>false</code> nooit.
+			</p>
+			<p class="description">
+				<strong>Nog niet ingebouwd:</strong> specifieke detectie voor Vivid Backup Pro &amp; MainWP staging clones. Maak een staging via een van die tools en kijk of bovenstaande signalen genoeg zijn. Zo niet &mdash; laten we specifieke detectie toevoegen.
+			</p>
+		</div>
+		<?php
+	}
+
 	private function render_action_buttons() {
 		?>
 		<div class="mcm-actions">
@@ -637,8 +1022,28 @@ class MCM_Admin_Page {
 			'profile_applied_basic' => [ 'success', 'Profiel <strong>Basic</strong> toegepast en geactiveerd.' ],
 			'profile_applied_standard' => [ 'success', 'Profiel <strong>Standard</strong> toegepast en geactiveerd.' ],
 			'profile_applied_strict' => [ 'success', 'Profiel <strong>Strict</strong> toegepast en geactiveerd. Test grondig.' ],
+			'profile_applied_staging' => [ 'success', 'Profiel <strong>Staging</strong> toegepast. Lockdown is uit zodat je kunt testen. Login-slug is leeggemaakt &mdash; regel toegang via HTTP Basic Auth.' ],
+			'profile_switched' => [ 'success', 'Profiel geswitcht via de mismatch-melding.' ],
 			'error'   => [ 'error', 'Er is een fout opgetreden. Controleer of de bestanden schrijfbaar zijn.' ],
+			'mail_none' => [ 'warning', 'Geen mail verstuurd: er zijn geen ontvangers aangevinkt of geen geldige beheerders gevonden.' ],
 		];
+
+		if ( 'mail_sent' === $status ) {
+			$count = isset( $_GET['mcm-count'] ) ? absint( $_GET['mcm-count'] ) : 0;
+			$msg   = sprintf(
+				/* translators: %d = aantal verzonden mails */
+				_n(
+					'Login-URL verstuurd naar %d beheerder.',
+					'Login-URL verstuurd naar %d beheerders.',
+					$count,
+					'mcm-security-hardener'
+				),
+				$count
+			);
+			printf( '<div class="notice notice-success is-dismissible"><p>%s</p></div>', esc_html( $msg ) );
+			return;
+		}
+
 		if ( ! isset( $messages[ $status ] ) ) {
 			return;
 		}

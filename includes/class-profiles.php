@@ -76,6 +76,15 @@ class MCM_Profiles {
 			'block_bad_url_content' => true,
 		];
 
+		// Staging — alleen "stille" bescherming. Lockdown/file_mods uit
+		// (anders kun je niets testen), human_verification uit (vervelend),
+		// auto_update_minor uit (jij wilt zelf controle wanneer staging update).
+		// Toegang wordt geregeld via HTTP Basic Auth, niet via login-slug
+		// (dat is voor live). Daarom override config: login_slug = ''.
+		$staging = $basic;
+		$staging['human_verification'] = false;
+		$staging['auto_update_minor']  = false;
+
 		return [
 			'basic' => [
 				'label'       => 'Basic',
@@ -98,6 +107,16 @@ class MCM_Profiles {
 				'safe_for'    => 'Brochure-sites zonder externe API\'s of webhook-integraties',
 				'settings'    => $strict,
 			],
+			'staging' => [
+				'label'       => 'Staging',
+				'tagline'     => 'Voor test/staging-omgevingen',
+				'description' => 'Alleen stille bescherming (versie verbergen, bad bots blokkeren). Lockdown van plugins/themes &amp; file-mods uit, zodat je kunt testen. Login-slug wordt leeg gemaakt &mdash; toegang regel je via HTTP Basic Auth.',
+				'safe_for'    => 'Staging/test-sites (Vivid Backup Pro, MainWP staging clones, *.test, staging.*)',
+				'settings'    => $staging,
+				'config_overrides' => [
+					'login_slug' => '',
+				],
+			],
 		];
 	}
 
@@ -119,6 +138,14 @@ class MCM_Profiles {
 		$all_toggles = self::all_toggle_keys();
 		foreach ( $all_toggles as $key ) {
 			$current[ $key ] = ! empty( $preset[ $key ] );
+		}
+
+		// Optioneel: profiel kan ook config-waardes overschrijven
+		// (bv. Staging-profiel maakt login_slug leeg).
+		if ( ! empty( $profiles[ $profile_name ]['config_overrides'] ) && is_array( $profiles[ $profile_name ]['config_overrides'] ) ) {
+			foreach ( $profiles[ $profile_name ]['config_overrides'] as $key => $value ) {
+				$current[ $key ] = $value;
+			}
 		}
 
 		update_option( 'mcm_security_settings', $current );
