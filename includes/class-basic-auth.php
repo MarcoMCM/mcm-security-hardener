@@ -40,11 +40,12 @@ class MCM_Basic_Auth {
 	const REALM = 'Staging - MCM Beveiliging';
 
 	/**
-	 * Hook de challenge zo vroeg mogelijk in.
-	 * Wordt aangeroepen vanuit hoofd plugin-file.
+	 * Hook de challenge in. Bewust op 'init' priority 1 (NIET plugins_loaded):
+	 * dan is current_user_can() betrouwbaar zodat ingelogde admins
+	 * niet onnodig een popup krijgen.
 	 */
 	public static function init() {
-		add_action( 'plugins_loaded', [ __CLASS__, 'maybe_challenge' ], 0 );
+		add_action( 'init', [ __CLASS__, 'maybe_challenge' ], 1 );
 	}
 
 	/**
@@ -82,6 +83,18 @@ class MCM_Basic_Auth {
 		if ( self::is_rest_request() ) {
 			return;
 		}
+		// Ingelogde WP-admins skip — zij hebben al WP-login gedaan dus
+		// hoeven geen extra Basic Auth popup. Voorkomt ook lockout direct
+		// na "Activeer & genereer" wanneer Marco/admin gewoon door wil werken.
+		if ( is_user_logged_in() && current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		// wp-login.php zelf moet bereikbaar blijven, anders kunnen klanten
+		// ook niet inloggen na de Basic Auth pop-up. Deze check is een
+		// extra vangnet — Basic Auth gebeurt via browser, daarna komt de
+		// klant op wp-login.php waar hij/zij de WP-credentials invult.
+		// (geen aparte bypass nodig, wp-login.php triggert deze hook ook
+		// en de klant heeft dan al Basic Auth ingevuld in de browser.)
 
 		// Credentials uitlezen — meerdere fallbacks voor PHP-FPM compatibility.
 		list( $user, $pass ) = self::get_credentials();
