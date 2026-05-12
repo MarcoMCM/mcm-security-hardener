@@ -561,38 +561,22 @@ class MCM_Admin_Page {
 
 				<?php $this->render_action_buttons(); ?>
 
-				<!-- LOGIN URL -->
-				<div class="mcm-section">
-					<h2>Login URL Verbergen</h2>
-					<p class="description">Verbergt <code>/wp-login.php</code> en maakt een custom login-slug aan. De mail-instellingen staan in de sectie <strong>Klant toegang &amp; mail</strong> hieronder.</p>
-					<table class="form-table">
-						<tr>
-							<th scope="row"><label for="login_slug">Custom login slug</label></th>
-							<td>
-								<code><?php echo esc_html( home_url( '/' ) ); ?></code>
-								<input type="text" id="login_slug" name="login_slug"
-									value="<?php echo esc_attr( $settings['login_slug'] ?? '' ); ?>"
-									class="regular-text" placeholder="inloggenwebsite"
-									style="width: 200px;" />
-								<p class="description">Laat leeg om uit te schakelen.</p>
-								<?php if ( ! empty( $settings['login_slug'] ) ) : ?>
-								<p class="description" style="margin-top: 8px;">
-									<strong>Login URL:</strong>
-									<a href="<?php echo esc_url( home_url( '/' . $settings['login_slug'] ) ); ?>" target="_blank">
-										<?php echo esc_html( home_url( '/' . $settings['login_slug'] ) ); ?>
-									</a>
-								</p>
-								<?php endif; ?>
-							</td>
-						</tr>
-					</table>
-				</div>
+				<?php
+				// Volgorde + zichtbaarheid afhankelijk van de werkelijkheid (detection):
+				// - Op staging:  Staging wachtwoordbeveiliging BOVENAAN, daarna Login URL, daarna Klantmail
+				// - Op live:     Login URL bovenaan, Klantmail daaronder, Basic Auth NIET getoond
+				$is_staging_site = class_exists( 'MCM_Staging_Detector' ) && MCM_Staging_Detector::is_staging();
 
-				<!-- BASIC AUTH (STAGING) -->
-				<?php $this->render_basic_auth_section( $settings ); ?>
-
-				<!-- KLANT TOEGANG & MAIL -->
-				<?php $this->render_klantmail_section( $settings ); ?>
+				if ( $is_staging_site ) {
+					$this->render_basic_auth_section( $settings );
+					$this->render_login_url_section( $settings );
+					$this->render_klantmail_section( $settings );
+				} else {
+					$this->render_login_url_section( $settings );
+					$this->render_klantmail_section( $settings );
+					// Basic Auth wordt op live niet getoond — staging-only feature.
+				}
+				?>
 
 				<!-- DATABASE PREFIX -->
 				<?php if ( ! is_multisite() ) : ?>
@@ -859,6 +843,43 @@ class MCM_Admin_Page {
 				'sections_open' => [ 'login-url-verbergen', 'klant-toegang-mail' ],
 			],
 		];
+	}
+
+	/**
+	 * Login URL Verbergen sectie — alleen slug-input + URL preview.
+	 * Mail-instellingen staan in de aparte "Klant toegang & mail" sectie.
+	 */
+	private function render_login_url_section( $settings ) {
+		?>
+		<div class="mcm-section">
+			<h2>Login URL Verbergen</h2>
+			<p class="description">
+				Verbergt <code>/wp-login.php</code> en maakt een custom login-slug aan.
+				Voor mail-instellingen: zie de sectie <strong>Klant toegang &amp; mail</strong>.
+			</p>
+			<table class="form-table">
+				<tr>
+					<th scope="row"><label for="login_slug">Custom login slug</label></th>
+					<td>
+						<code><?php echo esc_html( home_url( '/' ) ); ?></code>
+						<input type="text" id="login_slug" name="login_slug"
+							value="<?php echo esc_attr( $settings['login_slug'] ?? '' ); ?>"
+							class="regular-text" placeholder="inloggenwebsite"
+							style="width: 200px;" />
+						<p class="description">Laat leeg om uit te schakelen.</p>
+						<?php if ( ! empty( $settings['login_slug'] ) ) : ?>
+						<p class="description" style="margin-top: 8px;">
+							<strong>Login URL:</strong>
+							<a href="<?php echo esc_url( home_url( '/' . $settings['login_slug'] ) ); ?>" target="_blank">
+								<?php echo esc_html( home_url( '/' . $settings['login_slug'] ) ); ?>
+							</a>
+						</p>
+						<?php endif; ?>
+					</td>
+				</tr>
+			</table>
+		</div>
+		<?php
 	}
 
 	/**
