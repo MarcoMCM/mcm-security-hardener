@@ -3,7 +3,7 @@
  * Plugin Name: MCM Security Hardener
  * Plugin URI:  https://github.com/MarcoMCM/mcm-security-hardener
  * Description: Schrijft security-hardening regels naar wp-config.php en .htaccess, gebaseerd op SecuPress Pro-niveau instellingen.
- * Version: 1.9.0
+ * Version: 1.10.0
  * Author: MCM Websites
  * Author URI: https://mcmwebsites.nl
  * Update URI: https://github.com/MarcoMCM/mcm-security-hardener
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MCM_SECURITY_VERSION', '1.9.0' );
+define( 'MCM_SECURITY_VERSION', '1.10.0' );
 define( 'MCM_SECURITY_FILE', __FILE__ );
 define( 'MCM_SECURITY_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -42,6 +42,7 @@ require_once MCM_SECURITY_DIR . 'includes/class-runtime-security.php';
 require_once MCM_SECURITY_DIR . 'includes/class-human-verification.php';
 require_once MCM_SECURITY_DIR . 'includes/class-db-prefix-manager.php';
 require_once MCM_SECURITY_DIR . 'includes/class-debug-watchdog.php';
+require_once MCM_SECURITY_DIR . 'includes/class-user-audit.php';
 require_once MCM_SECURITY_DIR . 'includes/class-profiles.php';
 require_once MCM_SECURITY_DIR . 'includes/class-admin-page.php';
 
@@ -69,6 +70,7 @@ final class MCM_Security_Hardener {
 		new MCM_Human_Verification();
 		new MCM_DB_Prefix_Manager();
 		new MCM_Debug_Watchdog();
+		new MCM_User_Audit();
 
 		if ( is_admin() ) {
 			new MCM_Admin_Page();

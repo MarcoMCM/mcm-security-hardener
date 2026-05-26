@@ -574,6 +574,8 @@ class MCM_Admin_Page {
 					$this->render_klantmail_section( $settings );
 					// Basic Auth wordt op live niet getoond — staging-only feature.
 				}
+
+				$this->render_user_audit_section();
 				?>
 
 				<!-- DATABASE PREFIX -->
@@ -946,6 +948,91 @@ class MCM_Admin_Page {
 	/**
 	 * UI sectie voor HTTP Basic Auth (staging).
 	 */
+	/**
+	 * User Audit sectie — toont users met verhoogde rechten (Admin/Editor/
+	 * Author/Contributor), met de optie om ze in één klik te downgraden.
+	 */
+	private function render_user_audit_section() {
+		$users           = MCM_User_Audit::get_elevated_users();
+		$target_label    = MCM_User_Audit::downgrade_target_label();
+		$klant_available = MCM_User_Audit::klant_role_available();
+		?>
+		<div class="mcm-section">
+			<h2>Users met verhoogde rechten</h2>
+			<p class="description">
+				Lijst van alle gebruikers met rol Administrator, Editor, Author of Contributor.
+				MCM-eigenaars en super-admins zijn uitgesloten.
+				Downgrade gaat naar <strong><?php echo esc_html( $target_label ); ?></strong>
+				<?php if ( $klant_available ) : ?>
+					(MCM Klant rol beschikbaar via Site Optimizer).
+				<?php else : ?>
+					(Site Optimizer niet geïnstalleerd &mdash; downgrade gaat naar Subscriber).
+				<?php endif; ?>
+			</p>
+
+			<?php if ( empty( $users ) ) : ?>
+				<p style="color:#1e7e34;"><strong>&#10003; Geen gebruikers met verhoogde rechten gevonden.</strong></p>
+			<?php else : ?>
+				<table class="widefat striped" style="margin-top: 8px;">
+					<thead>
+						<tr>
+							<th>Gebruiker</th>
+							<th>E-mail</th>
+							<th>Rol</th>
+							<th>Laatst gezien</th>
+							<th style="width: 240px;">Actie</th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $users as $user ) :
+							$is_admin      = in_array( 'administrator', (array) $user->roles, true );
+							$can_downgrade = $is_admin
+								? current_user_can( 'manage_options' )
+								: current_user_can( 'promote_users' );
+							$downgrade_url = wp_nonce_url(
+								add_query_arg(
+									[
+										'action'  => MCM_User_Audit::ACTION_DOWNGRADE,
+										'user_id' => $user->ID,
+									],
+									admin_url( 'admin-post.php' )
+								),
+								MCM_User_Audit::NONCE_KEY
+							);
+						?>
+						<tr>
+							<td><strong><?php echo esc_html( $user->user_login ); ?></strong></td>
+							<td><?php echo esc_html( $user->user_email ); ?></td>
+							<td>
+								<?php echo esc_html( MCM_User_Audit::role_labels( $user ) ); ?>
+								<?php if ( $is_admin ) : ?>
+									<span title="Administrator" style="color:#b32d2e; margin-left: 4px;">&#9888;</span>
+								<?php endif; ?>
+							</td>
+							<td><?php echo esc_html( MCM_User_Audit::last_seen_label( $user ) ); ?></td>
+							<td>
+								<?php if ( $can_downgrade ) : ?>
+									<a href="<?php echo esc_url( $downgrade_url ); ?>"
+										class="button button-small"
+										onclick="return confirm('Weet je zeker dat je <?php echo esc_js( $user->user_login ); ?> wilt downgraden naar <?php echo esc_js( $target_label ); ?>?');">
+										Downgrade naar <?php echo esc_html( $target_label ); ?>
+									</a>
+								<?php else : ?>
+									<em style="color:#646970;">geen rechten</em>
+								<?php endif; ?>
+							</td>
+						</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+				<p class="description" style="margin-top: 8px;">
+					Totaal: <?php echo (int) count( $users ); ?> gebruiker(s) met verhoogde rechten.
+				</p>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
 	private function render_basic_auth_section( $settings ) {
 		$is_staging = class_exists( 'MCM_Staging_Detector' ) ? MCM_Staging_Detector::is_staging() : false;
 		$is_active  = MCM_Basic_Auth::is_active();
@@ -1541,7 +1628,25 @@ class MCM_Admin_Page {
 			'basic_auth_regenerated' => [ 'success', 'Nieuw wachtwoord gegenereerd. Oude wachtwoord werkt niet meer.' ],
 			'basic_auth_no_plain' => [ 'warning', 'Plain wachtwoord niet meer in cache (>30 min). Klik <em>Regenereer wachtwoord</em> voor een nieuwe.' ],
 			'basic_auth_error' => [ 'error', 'Basic Auth fout' ],
+			'audit_invalid' => [ 'error', 'User audit: ongeldige aanvraag.' ],
+			'audit_user_not_found' => [ 'error', 'User audit: gebruiker niet gevonden.' ],
+			'audit_owner_protected' => [ 'warning', 'User audit: MCM-eigenaar wordt niet gedowngrade.' ],
+			'audit_super_protected' => [ 'warning', 'User audit: super-admin (multisite) wordt niet gedowngrade.' ],
+			'audit_no_admin_downgrade' => [ 'error', 'User audit: alleen een administrator mag een administrator downgraden.' ],
 		];
+
+		if ( 'audit_downgraded' === $status ) {
+			$user  = isset( $_GET['mcm_audit_user'] ) ? sanitize_user( wp_unslash( $_GET['mcm_audit_user'] ) ) : '?';
+			$role  = isset( $_GET['mcm_audit_role'] ) ? sanitize_key( wp_unslash( $_GET['mcm_audit_role'] ) ) : '?';
+			$names = wp_roles()->get_names();
+			$label = isset( $names[ $role ] ) ? translate_user_role( $names[ $role ] ) : $role;
+			printf(
+				'<div class="notice notice-success is-dismissible"><p>Gebruiker <strong>%s</strong> is gedowngrade naar <strong>%s</strong>.</p></div>',
+				esc_html( $user ),
+				esc_html( $label )
+			);
+			return;
+		}
 
 		if ( 'mail_sent' === $status ) {
 			$count = isset( $_GET['mcm-count'] ) ? absint( $_GET['mcm-count'] ) : 0;
