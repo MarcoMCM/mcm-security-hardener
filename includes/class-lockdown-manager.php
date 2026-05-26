@@ -111,13 +111,38 @@ class MCM_Lockdown_Manager {
 
 	/**
 	 * Helper: check of de huidige gebruiker een MCM eigenaar is.
+	 *
+	 * Drie routes (in volgorde):
+	 *   1. user_login staat in de MCM_SECURITY_OWNERS lijst (via get_owners())
+	 *   2. user_email is gelijk aan het MCM Notifier-adres (= marco@mcmwebsites.nl)
+	 *   3. Filter 'mcm_security_is_owner' geeft true
+	 *
+	 * De email-fallback is handig op sites waar de MCM_SECURITY_OWNERS-constante
+	 * (nog) niet gezet is — zolang de owner is ingelogd met het juiste mailadres.
 	 */
-	public static function is_mcm_owner() {
-		$user = wp_get_current_user();
+	public static function is_mcm_owner( $user = null ) {
+		if ( null === $user ) {
+			$user = wp_get_current_user();
+		}
 		if ( ! $user || ! $user->exists() ) {
 			return false;
 		}
-		return in_array( $user->user_login, self::get_owners(), true );
+
+		// 1. Login op de owners-lijst.
+		if ( in_array( $user->user_login, self::get_owners(), true ) ) {
+			return true;
+		}
+
+		// 2. Email matcht de MCM Notifier-bestemming.
+		if ( class_exists( 'MCM_Notifier' ) ) {
+			$notify_email = MCM_Notifier::notify_email();
+			if ( ! empty( $notify_email ) && 0 === strcasecmp( $user->user_email, $notify_email ) ) {
+				return true;
+			}
+		}
+
+		// 3. Filter-fallback voor custom override.
+		return (bool) apply_filters( 'mcm_security_is_owner', false, $user );
 	}
 
 	/**
