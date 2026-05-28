@@ -402,6 +402,7 @@ class MCM_Admin_Page {
 		$settings['admin_email']      = isset( $_POST['admin_email'] ) ? sanitize_email( $_POST['admin_email'] ) : get_option( 'admin_email', '' );
 		$settings['login_slug']       = isset( $_POST['login_slug'] ) && ! empty( $_POST['login_slug'] ) ? sanitize_title( $_POST['login_slug'] ) : 'inloggenwebsite';
 		$settings['bad_referers_list'] = isset( $_POST['bad_referers_list'] ) ? sanitize_textarea_field( $_POST['bad_referers_list'] ) : '';
+		$settings['disposable_email_list'] = isset( $_POST['disposable_email_list'] ) ? sanitize_textarea_field( $_POST['disposable_email_list'] ) : '';
 		$settings['human_verification_delay'] = isset( $_POST['human_verification_delay'] )
 			? max( 1, min( 30, (int) $_POST['human_verification_delay'] ) )
 			: 3;
@@ -450,6 +451,8 @@ class MCM_Admin_Page {
 			'block_wp_includes_php',
 			// human verification
 			'human_verification',
+			// registratiebescherming
+			'registration_honeypot', 'block_disposable_email',
 		];
 
 		$settings = [];
@@ -460,6 +463,7 @@ class MCM_Admin_Page {
 		$settings['admin_email']      = isset( $post['admin_email'] ) ? sanitize_email( $post['admin_email'] ) : '';
 		$settings['login_slug']       = isset( $post['login_slug'] ) ? sanitize_title( $post['login_slug'] ) : '';
 		$settings['bad_referers_list'] = isset( $post['bad_referers_list'] ) ? sanitize_textarea_field( $post['bad_referers_list'] ) : '';
+		$settings['disposable_email_list'] = isset( $post['disposable_email_list'] ) ? sanitize_textarea_field( $post['disposable_email_list'] ) : '';
 		$settings['human_verification_delay'] = isset( $post['human_verification_delay'] )
 			? max( 1, min( 30, (int) $post['human_verification_delay'] ) )
 			: 3;
@@ -645,6 +649,26 @@ class MCM_Admin_Page {
 									value="<?php echo esc_attr( $settings['human_verification_delay'] ?? 3 ); ?>"
 									min="1" max="30" step="1" style="width: 80px;" />
 								<p class="description">Hoeveel seconden de animatie duurt voordat het vinkje gezet is. Aanrader: 2&ndash;5 seconden.</p>
+							</td>
+						</tr>
+					</table>
+				</div>
+
+				<!-- REGISTRATIEBESCHERMING -->
+				<div class="mcm-section">
+					<h2>Registratiebescherming</h2>
+					<p class="description">Honeypot-veld en wegwerpdomein-filter op registratieformulieren (WordPress &eacute;n WooCommerce). Werkt naast Human Verification.</p>
+					<table class="form-table">
+						<?php
+						$this->render_toggle( 'registration_honeypot', 'Honeypot bij registratie', 'Voegt een verborgen veld toe dat alleen bots invullen. Gevuld veld &rarr; registratie geweigerd. Echte bezoekers zien het nooit.', $settings );
+						$this->render_toggle( 'block_disposable_email', 'Blokkeer wegwerp-e-mailadressen', 'Weigert registratie met tijdelijke/wegwerp-emailadressen (mailinator, yopmail, 10minutemail, etc.).', $settings );
+						?>
+						<tr>
+							<th scope="row"><label for="disposable_email_list">Eigen wegwerpdomeinen</label></th>
+							<td>
+								<textarea id="disposable_email_list" name="disposable_email_list" rows="5" class="large-text code"
+									placeholder="extra-spam-domein.com&#10;nog-een-wegwerp.net"><?php echo esc_textarea( $settings['disposable_email_list'] ?? '' ); ?></textarea>
+								<p class="description">&Eacute;&eacute;n domein per regel. Deze komen bovenop de ingebouwde lijst.</p>
 							</td>
 						</tr>
 					</table>
