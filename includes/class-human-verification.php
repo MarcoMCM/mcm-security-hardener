@@ -36,10 +36,19 @@ class MCM_Human_Verification {
 		$this->delay = max( 1, min( 30, (int) ( $this->settings['human_verification_delay'] ?? 3 ) ) );
 
 		// Render veld op login-, registratie- en wachtwoord-vergeten-formulieren.
+		// WordPress core (wp-login.php):
 		add_action( 'login_form',            [ $this, 'render_field' ] );
 		add_action( 'register_form',         [ $this, 'render_field' ] );
 		add_action( 'lostpassword_form',     [ $this, 'render_field' ] );
 		add_action( 'login_enqueue_scripts', [ $this, 'enqueue_styles' ] );
+
+		// WooCommerce (my-account/login + lost-password). Zonder deze hooks
+		// werd de validatie via 'authenticate' wél uitgevoerd maar het veld
+		// niet getoond — klanten kregen dan "verificatie niet voltooid" zonder
+		// dat ze ooit het vinkje gezien hadden.
+		add_action( 'woocommerce_login_form',        [ $this, 'render_field' ] );
+		add_action( 'woocommerce_register_form',     [ $this, 'render_field' ] );
+		add_action( 'woocommerce_lostpassword_form', [ $this, 'render_field' ] );
 
 		// Server-side validatie. Priority 30 = NA WP's eigen credential-check
 		// (wp_authenticate_username_password staat op 20 en overschrijft een WP_Error
@@ -54,6 +63,11 @@ class MCM_Human_Verification {
 	 * Render het verificatie-veld in een login-/register-/lostpw-formulier.
 	 */
 	public function render_field() {
+		// Zorg dat de CSS aanwezig is, ook op pagina's waar login_enqueue_scripts
+		// niet draait (zoals WooCommerce my-account). enqueue_styles() is
+		// idempotent — print de stijl maar één keer per request.
+		$this->enqueue_styles();
+
 		$ts  = time();
 		$sig = $this->sign( $ts );
 		?>
@@ -76,8 +90,18 @@ class MCM_Human_Verification {
 
 	/**
 	 * Inline CSS — pure animaties, geen JS, geen externe assets.
+	 *
+	 * Idempotent: print de stijl maar één keer per request, ongeacht hoe
+	 * vaak deze methode wordt aangeroepen (login_enqueue_scripts hook +
+	 * render_field-fallback voor WooCommerce-context).
 	 */
 	public function enqueue_styles() {
+		static $printed = false;
+		if ( $printed ) {
+			return;
+		}
+		$printed = true;
+
 		$delay   = (int) $this->delay;
 		$expires = (int) HOUR_IN_SECONDS;
 		?>
