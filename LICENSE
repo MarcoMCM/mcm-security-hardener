@@ -1,0 +1,45 @@
+MCM Security Hardener — License
+
+Copyright © MCM Websites. All rights reserved.
+
+This plugin is an internal tool of MCM Websites, intended for use on MCM
+client sites and authorized collaborators only.
+
+PERMITTED USE
+-------------
+- Installation and use on websites owned, operated, or under maintenance
+  contract by MCM Websites.
+- Installation and use by collaborators of MCM Websites with written or
+  email confirmation from Marco (marco@mcmwebsites.nl).
+- Modification of the source code for the purposes above.
+
+NOT PERMITTED WITHOUT WRITTEN PERMISSION
+----------------------------------------
+- Redistribution to third parties.
+- Commercial distribution, resale, or inclusion in commercial products.
+- Publication of the source code under another name or license.
+- Use as the basis for a publicly distributed fork.
+
+WORDPRESS GPL NOTICE
+--------------------
+This plugin uses WordPress hooks and APIs. Per the position of the WordPress
+Foundation, PHP code that uses WordPress functions inherits the GPL-2.0-or-later
+license for the GPL-licensed portions of WordPress code it relies on. Original
+code authored by MCM Websites and included in this repository remains under
+the proprietary terms above.
+
+The bundled third-party library `vendor/plugin-update-checker/` by Yahnis Elsts
+is distributed under its own MIT license — see its source for details.
+
+WARRANTY
+--------
+This software is provided "as is" without warranty of any kind, express or
+implied, including but not limited to the warranties of merchantability,
+fitness for a particular purpose and non-infringement. In no event shall the
+author be liable for any claim, damages, or other liability arising from the
+use of this software.
+
+CONTACT
+-------
+For permission requests, support, or questions:
+marco@mcmwebsites.nl

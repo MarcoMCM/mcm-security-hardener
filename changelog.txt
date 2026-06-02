@@ -1,0 +1,81 @@
+MCM Security Hardener — Changelog
+
+= 1.13.0 (2026-06-01) =
+* Fix: Human Verification draaide niet op WooCommerce my-account login/register/lostpassword
+  Het vinkje werd niet getoond op WC-formulieren, maar de validatie liep wel — gevolg:
+  "menselijke verificatie nog niet voltooid" zonder dat klanten ooit het vinkje gezien hadden.
+* Hooks toegevoegd: woocommerce_login_form, woocommerce_register_form, woocommerce_lostpassword_form
+* render_field() roept enqueue_styles() aan zodat CSS ook geprint wordt op pagina's waar
+  login_enqueue_scripts niet draait
+* enqueue_styles() is nu idempotent (static $printed) — geen dubbel printen op wp-login.php
+
+= 1.12.0 (2026-05-28) =
+* Nieuw: Registratiebescherming (MCM_Registration_Protection class)
+* Honeypot-veld bij registratie — gevuld door bots, onzichtbaar voor mensen
+* Wegwerpdomein-filter — weigert tijdelijke emailadressen (mailinator, yopmail, 10minutemail, etc.)
+* Werkt op zowel WP-standaard als WooCommerce registratie
+* Eigen wegwerpdomeinen toe te voegen via textarea in instellingen
+* Filter 'mcm_blocked_email_domains' voor programmatische uitbreiding
+* Werkt complementair naast Human Verification (timing vs honeypot)
+
+= 1.11.0 (2026-05-28) =
+* Nieuw: WordPress major-update compatibiliteits-check (MCM_Update_Compat_Check)
+* Toont op Dashboard → Updates een bewustwordings-blok bij major WP-update
+* Per actieve plugin vergelijking 'Tested up to' uit readme.txt met de aankomende WP-versie
+* Status: Compatibel / Niet getest / Onbekend
+* Zwijgt bij minor-updates (6.7.1 → 6.7.2)
+* Alleen zichtbaar voor MCM-eigenaars
+* Verbetering: is_mcm_owner() herkent owners nu ook via emailadres (= MCM_Notifier::notify_email())
+  zodat MCM_SECURITY_OWNERS-constante niet per se nodig is
+
+= 1.10.0 (2026-05-26) =
+* Nieuw: User Audit sectie (MCM_User_Audit class)
+* Toont alle users met rol Administrator/Editor/Author/Contributor
+* 1-klik downgrade naar MCM Klant (mits Site Optimizer aanwezig) of Subscriber
+* Skipt automatisch MCM-eigenaars en super-admins (multisite)
+* Admin-downgrade alleen toegestaan voor users met manage_options
+* Nonce-beveiligde admin-post URL flow
+
+= 1.9.0 (2026-05-26) =
+* Nieuw: WP_DEBUG productie-watchdog (MCM_Debug_Watchdog class)
+* Detecteert WP_DEBUG=true op productie-omgevingen via wp_get_environment_type()
+* Admin-notice (oranje voor WP_DEBUG, rood voor WP_DEBUG_DISPLAY = info-leak)
+* 1×/24u mail naar de eigenaar zolang situatie aanhoudt — geen mail-moeheid
+* Zwijgt op staging/dev-omgevingen
+* Uit te schakelen via filter of constante MCM_SECURITY_DISABLE_DEBUG_WATCHDOG
+
+= 1.8.x (2026-05-12) =
+* HTTP Basic Auth voor staging-omgevingen (MCM_Basic_Auth class)
+* Sectie-volgorde adaptief aan staging/live-detectie
+* Aparte sectie "Klant toegang & mail" — gecentraliseerd
+* Profiel-gestuurde stappenuitleg met auto-open van relevante secties
+* UX-verbetering: Basic Auth skipt ingelogde admins
+* PHP-based Basic Auth voor situaties waar .htpasswd niet werkt
+* Eén toegangsmail die zowel login-URL als Basic Auth credentials bevat
+* Diverse kleine UI-updates en bugfixes (v1.8.1 → 1.8.7)
+
+= 1.7.x (2026-05-12) =
+* Login-mail bij slug-wijziging — kennis stuurmen naar admins
+* Nieuw Staging-profiel met aangepaste hardening
+* Omgevingsdetectie (MCM_Staging_Detector) — productie vs staging
+* MCM Klant rol getoond in mail-recipients lijst
+* Plugin icon + collapsible admin-secties (v1.7.1)
+
+= 1.4.2 (2026-05-07) =
+* Cleanup voor publieke repo: hardcoded MCM_OWNERS verwijderd uit code
+  (nu via wp-config constante of mu-plugin)
+* login_slug default leeggemaakt (per site instellen via Bulk Settings Manager)
+
+= 1.4.1 (2026-05-06) =
+* Verificatie van de self-update flow
+
+= 1.4.0 (2026-05-06) =
+* Nieuw: MCM_Notifier centrale email/notice-infrastructuur
+* Nieuw: GitHub self-update via plugin-update-checker v5.6
+* DB-prefix admin-notice alleen zichtbaar voor MCM-eigenaars
+* block_bad_url_content default uitgeschakeld (gaf 44% false positives)
+
+= 1.3.x en eerder =
+* Initiële ontwikkeling: basis hardening (wp-config + .htaccess), lockdown, login-slug,
+  Human Verification, DB-prefix-migratie, runtime-security (bot/UA/referer-blockers),
+  profielen (Basic/Standard/Strict)
