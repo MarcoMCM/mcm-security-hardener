@@ -352,30 +352,21 @@ class MCM_Admin_Page {
 			? sprintf( '%s (%s)', $current_user->display_name, $current_user->user_email )
 			: 'onbekend';
 
-		$timestamp = wp_date( 'd-m-Y H:i' );
+		$timestamp = wp_date( 'd-m-Y \o\m H:i' );
 
 		if ( $is_change ) {
-			$subject = sprintf( '[%s] Login-URL is gewijzigd', $site_name );
-			$intro   = sprintf( "De login-URL van %s is zojuist aangepast.\n\n", $site_name );
+			$subject  = sprintf( '[%s] Inlog-URL gewijzigd', $site_name );
+			$title    = sprintf( 'De inlog-URL van %s is bijgewerkt', $site_name );
+			$lead     = sprintf( 'De inlog-URL voor <strong>%s</strong> is zojuist aangepast voor extra beveiliging. Hieronder vind je de nieuwe link — bewaar deze mail goed.', esc_html( $site_name ) );
 			$by_label = 'Gewijzigd door';
 		} else {
-			$subject = sprintf( '[%s] Je login-URL', $site_name );
-			$intro   = sprintf( "Hierbij ter herinnering de login-URL van %s.\n\n", $site_name );
+			$subject  = sprintf( '[%s] Inlog-URL', $site_name );
+			$title    = sprintf( 'Inloggen op %s', $site_name );
+			$lead     = sprintf( 'Hierbij de inlog-URL voor <strong>%s</strong>. Bewaar deze mail veilig zodat je de link altijd bij de hand hebt.', esc_html( $site_name ) );
 			$by_label = 'Verstuurd door';
 		}
 
-		$body  = "Beste,\n\n" . $intro;
-		$body .= "Site: {$home_url}\n";
-		$body .= "Login-URL: {$login_url}\n";
-		if ( ! $slug ) {
-			$body .= "(Let op: er is geen custom login-slug ingesteld — er wordt ingelogd via de standaard /wp-login.php.)\n";
-		}
-		$body .= "\n{$by_label}: {$by_who}\n";
-		$body .= "Tijdstip: {$timestamp}\n\n";
-		$body .= "Bewaar deze mail veilig. Je gebruikersnaam en wachtwoord zijn niet gewijzigd; gebruik gewoon je bestaande inloggegevens.\n\n";
-		$body .= "— MCM Security Hardener\n";
-
-		$headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
+		$headers = [ 'Content-Type: text/html; charset=UTF-8' ];
 
 		$sent = 0;
 		foreach ( $recipient_ids as $user_id ) {
@@ -383,10 +374,83 @@ class MCM_Admin_Page {
 			if ( ! self::user_is_eligible_recipient( $user ) || empty( $user->user_email ) ) {
 				continue;
 			}
-			if ( wp_mail( $user->user_email, $subject, $body, $headers ) ) {
+
+			// Persoonlijke aanhef per ontvanger.
+			$first    = trim( (string) get_user_meta( $user->ID, 'first_name', true ) );
+			$display  = trim( (string) $user->display_name );
+			$greet_to = $first ?: $display;
+			$greeting = $greet_to ? sprintf( 'Hallo %s,', $greet_to ) : 'Hallo,';
+
+			// HTML body — inline styles voor brede mail-client compatibility.
+			ob_start();
+			?>
+			<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 28px 24px; color: #1d2327; line-height: 1.55; font-size: 15px;">
+				<h1 style="margin: 0 0 18px; font-size: 22px; color: #1d2327; font-weight: 600;">
+					<?php echo esc_html( $title ); ?>
+				</h1>
+				<p style="margin: 0 0 20px;">
+					<?php echo esc_html( $greeting ); ?><br>
+					<?php echo wp_kses( $lead, [ 'strong' => [] ] ); ?>
+				</p>
+				<div style="background: #f0f6fc; border-left: 4px solid #2271b1; padding: 18px 22px; margin: 22px 0; border-radius: 4px;">
+					<p style="margin: 0 0 6px; color: #50575e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+						Jouw inlog-URL
+					</p>
+					<p style="margin: 0 0 16px; font-size: 15px; word-break: break-all;">
+						<a href="<?php echo esc_url( $login_url ); ?>" style="color: #2271b1; text-decoration: none;"><?php echo esc_html( $login_url ); ?></a>
+					</p>
+					<a href="<?php echo esc_url( $login_url ); ?>" style="display: inline-block; background: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 4px; font-size: 14px; font-weight: 500;">
+						Naar inlogpagina &rarr;
+					</a>
+				</div>
+				<?php if ( ! $slug ) : ?>
+				<p style="margin: 0 0 18px; padding: 12px 16px; background: #fff8e5; border-left: 4px solid #dba617; border-radius: 4px; font-size: 14px;">
+					<strong>Let op:</strong> er is momenteel geen aangepaste inlog-slug ingesteld &mdash; er wordt ingelogd via de standaard <code>/wp-login.php</code>.
+				</p>
+				<?php endif; ?>
+				<p style="margin: 0 0 20px;">
+					Je gebruikersnaam en wachtwoord zijn <strong>niet</strong> gewijzigd &mdash; gebruik gewoon je bestaande inloggegevens.
+				</p>
+				<hr style="border: 0; border-top: 1px solid #e0e0e0; margin: 28px 0;">
+				<p style="margin: 0 0 4px; color: #646970; font-size: 12px;">
+					<?php echo esc_html( $by_label ); ?>: <?php echo esc_html( $by_who ); ?><br>
+					Verstuurd op <?php echo esc_html( $timestamp ); ?> via <?php echo esc_html( $site_name ); ?>
+				</p>
+				<p style="margin: 8px 0 0; color: #646970; font-size: 12px;">
+					Vragen? Stuur een mail naar <a href="mailto:marco@mcmwebsites.nl" style="color: #646970;">marco@mcmwebsites.nl</a>.
+				</p>
+			</div>
+			<?php
+			$html = ob_get_clean();
+
+			// Plain-text fallback voor mail-clients die geen HTML renderen.
+			$plain  = "{$greeting}\n\n";
+			$plain .= $is_change
+				? sprintf( "De inlog-URL voor %s is zojuist bijgewerkt voor extra beveiliging.\n\n", $site_name )
+				: sprintf( "Hierbij de inlog-URL voor %s.\n\n", $site_name );
+			$plain .= "Jouw inlog-URL:\n  {$login_url}\n\n";
+			if ( ! $slug ) {
+				$plain .= "Let op: er is geen aangepaste inlog-slug ingesteld — er wordt ingelogd via de standaard /wp-login.php.\n\n";
+			}
+			$plain .= "Je gebruikersnaam en wachtwoord blijven hetzelfde.\n\n";
+			$plain .= "---\n";
+			$plain .= "{$by_label}: {$by_who}\n";
+			$plain .= "Verstuurd op {$timestamp} via {$site_name}\n";
+			$plain .= "Vragen? Stuur een mail naar marco@mcmwebsites.nl\n";
+
+			// Plain-text alt-body via PHPMailer voor multipart-mail.
+			$alt_body_setter = function ( $phpmailer ) use ( $plain ) {
+				$phpmailer->AltBody = $plain;
+			};
+			add_action( 'phpmailer_init', $alt_body_setter );
+
+			if ( wp_mail( $user->user_email, $subject, $html, $headers ) ) {
 				$sent++;
 			}
+
+			remove_action( 'phpmailer_init', $alt_body_setter );
 		}
+
 		return $sent;
 	}
 

@@ -1,5 +1,17 @@
 MCM Security Hardener — Changelog
 
+= 1.15.1 (2026-06-02) =
+* UX: Login-URL mail is nu een nette HTML-mail met klikbare knop
+  "Naar inlogpagina" in plaats van een plain-text bericht
+* Persoonlijke aanhef per ontvanger ("Hallo Marco," in plaats van
+  "Beste,") op basis van first_name → display_name → generiek
+* Vriendelijkere intro en duidelijker visueel onderscheid tussen URL,
+  uitleg en metadata
+* Waarschuwingsbox als er geen aangepaste inlog-slug is ingesteld
+* Plain-text fallback via PHPMailer AltBody voor mail-clients die
+  geen HTML renderen
+* Geen functionele wijzigingen — verzendlogica en ontvangers ongewijzigd
+
 = 1.15.0 (2026-06-02) =
 * Profielen (Basic/Standard/Strict/Staging) sturen nu ook de nieuwere
   toggles uit v1.12-v1.14
