@@ -1,5 +1,18 @@
 MCM Security Hardener — Changelog
 
+= 1.14.0 (2026-06-02) =
+* Nieuw: Backend toegang sectie (MCM_Backend_Access class)
+* Skip admin email confirmation — schakelt het halfjaarlijkse
+  "controleer admin email"-tussenscherm uit voor administrators
+  (default AAN — universeel irritant)
+* Block non-admin backend access — redirect ingelogde users zonder
+  toegestane rol weg van /wp-admin/ (default UIT, bewuste keuze per site)
+* Whitelist van rollen instelbaar via textarea (default: administrator + editor)
+* Redirect-URL instelbaar (default homepage)
+* AJAX/REST/WP-CLI/cron altijd doorgelaten
+* MCM-eigenaars worden nooit geblokkeerd
+* Filters: mcm_allowed_backend_roles, mcm_unauthorized_backend_redirect
+
 = 1.13.0 (2026-06-01) =
 * Fix: Human Verification draaide niet op WooCommerce my-account login/register/lostpassword
   Het vinkje werd niet getoond op WC-formulieren, maar de validatie liep wel — gevolg:

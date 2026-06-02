@@ -403,6 +403,8 @@ class MCM_Admin_Page {
 		$settings['login_slug']       = isset( $_POST['login_slug'] ) && ! empty( $_POST['login_slug'] ) ? sanitize_title( $_POST['login_slug'] ) : 'inloggenwebsite';
 		$settings['bad_referers_list'] = isset( $_POST['bad_referers_list'] ) ? sanitize_textarea_field( $_POST['bad_referers_list'] ) : '';
 		$settings['disposable_email_list'] = isset( $_POST['disposable_email_list'] ) ? sanitize_textarea_field( $_POST['disposable_email_list'] ) : '';
+		$settings['allowed_backend_roles'] = isset( $_POST['allowed_backend_roles'] ) ? sanitize_textarea_field( $_POST['allowed_backend_roles'] ) : "administrator\neditor";
+		$settings['unauthorized_backend_redirect'] = isset( $_POST['unauthorized_backend_redirect'] ) ? esc_url_raw( trim( $_POST['unauthorized_backend_redirect'] ) ) : '';
 		$settings['human_verification_delay'] = isset( $_POST['human_verification_delay'] )
 			? max( 1, min( 30, (int) $_POST['human_verification_delay'] ) )
 			: 3;
@@ -453,6 +455,8 @@ class MCM_Admin_Page {
 			'human_verification',
 			// registratiebescherming
 			'registration_honeypot', 'block_disposable_email',
+			// backend access
+			'skip_admin_email_confirmation', 'block_non_admin_backend',
 		];
 
 		$settings = [];
@@ -464,6 +468,8 @@ class MCM_Admin_Page {
 		$settings['login_slug']       = isset( $post['login_slug'] ) ? sanitize_title( $post['login_slug'] ) : '';
 		$settings['bad_referers_list'] = isset( $post['bad_referers_list'] ) ? sanitize_textarea_field( $post['bad_referers_list'] ) : '';
 		$settings['disposable_email_list'] = isset( $post['disposable_email_list'] ) ? sanitize_textarea_field( $post['disposable_email_list'] ) : '';
+		$settings['allowed_backend_roles'] = isset( $post['allowed_backend_roles'] ) ? sanitize_textarea_field( $post['allowed_backend_roles'] ) : "administrator\neditor";
+		$settings['unauthorized_backend_redirect'] = isset( $post['unauthorized_backend_redirect'] ) ? esc_url_raw( trim( $post['unauthorized_backend_redirect'] ) ) : '';
 		$settings['human_verification_delay'] = isset( $post['human_verification_delay'] )
 			? max( 1, min( 30, (int) $post['human_verification_delay'] ) )
 			: 3;
@@ -649,6 +655,35 @@ class MCM_Admin_Page {
 									value="<?php echo esc_attr( $settings['human_verification_delay'] ?? 3 ); ?>"
 									min="1" max="30" step="1" style="width: 80px;" />
 								<p class="description">Hoeveel seconden de animatie duurt voordat het vinkje gezet is. Aanrader: 2&ndash;5 seconden.</p>
+							</td>
+						</tr>
+					</table>
+				</div>
+
+				<!-- BACKEND TOEGANG -->
+				<div class="mcm-section">
+					<h2>Backend toegang</h2>
+					<p class="description">Twee instellingen rond wp-admin toegang. MCM-eigenaars worden nooit geblokkeerd.</p>
+					<table class="form-table">
+						<?php
+						$this->render_toggle( 'skip_admin_email_confirmation', 'Skip admin email confirmation', 'Schakelt het "controleer admin email"-tussenscherm uit dat WordPress periodiek toont. Universeel irritant voor terugkerende beheerders.', $settings );
+						$this->render_toggle( 'block_non_admin_backend', 'Blokkeer non-admin backend toegang', 'Redirect ingelogde users zonder toegestane rol weg van /wp-admin/. Aan wanneer klant-rollen niet in de backend horen.', $settings );
+						?>
+						<tr>
+							<th scope="row"><label for="allowed_backend_roles">Toegestane backend-rollen</label></th>
+							<td>
+								<textarea id="allowed_backend_roles" name="allowed_backend_roles" rows="4" class="large-text code"
+									placeholder="administrator&#10;editor&#10;shop_manager"><?php echo esc_textarea( $settings['allowed_backend_roles'] ?? "administrator\neditor" ); ?></textarea>
+								<p class="description">&Eacute;&eacute;n rol-slug per regel. Voorbeelden: <code>administrator</code>, <code>editor</code>, <code>shop_manager</code> (WooCommerce), <code>wpamelia-manager</code> (Amelia).</p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row"><label for="unauthorized_backend_redirect">Redirect-URL bij blokkade</label></th>
+							<td>
+								<input type="url" id="unauthorized_backend_redirect" name="unauthorized_backend_redirect"
+									value="<?php echo esc_attr( $settings['unauthorized_backend_redirect'] ?? '' ); ?>"
+									class="regular-text" placeholder="<?php echo esc_attr( home_url( '/' ) ); ?>" />
+								<p class="description">Waar geblokkeerde users heen gaan. Leeg = homepage.</p>
 							</td>
 						</tr>
 					</table>
