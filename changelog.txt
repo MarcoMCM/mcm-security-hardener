@@ -1,5 +1,16 @@
 MCM Security Hardener — Changelog
 
+= 1.15.0 (2026-06-02) =
+* Profielen (Basic/Standard/Strict/Staging) sturen nu ook de nieuwere
+  toggles uit v1.12-v1.14
+* Basic + Standard + Strict + Staging: registration_honeypot AAN
+* Basic + Standard + Strict: block_disposable_email AAN
+  (Staging UIT — test-emails moeten kunnen)
+* Basic + Standard + Strict + Staging: skip_admin_email_confirmation AAN
+* Strict: block_non_admin_backend AAN (klant-rollen niet in wp-admin)
+* Belangrijk: ook bugfix — voorheen werden v1.12-v1.14 toggles bij elke
+  profile-apply op false gezet omdat ze niet in all_toggle_keys() stonden
+
 = 1.14.0 (2026-06-02) =
 * Nieuw: Backend toegang sectie (MCM_Backend_Access class)
 * Skip admin email confirmation — schakelt het halfjaarlijkse

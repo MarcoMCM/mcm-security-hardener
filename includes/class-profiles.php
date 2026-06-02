@@ -57,6 +57,11 @@ class MCM_Profiles {
 			'block_bad_referers'        => true,
 			// human verification
 			'human_verification'        => true,
+			// registratiebescherming (anti-bot bij registratie)
+			'registration_honeypot'     => true,
+			'block_disposable_email'    => true,
+			// backend toegang
+			'skip_admin_email_confirmation' => true,
 		];
 
 		// Basic + lockdown + xmlrpc blokkeren + script concat blokkeren.
@@ -69,11 +74,12 @@ class MCM_Profiles {
 			'block_script_concat' => true,
 		];
 
-		// Standard + agressieve URL/UA-filtering. Risico false positives
-		// bij externe API integraties.
+		// Standard + agressieve URL/UA-filtering + klant-rollen niet in backend.
+		// Risico false positives bij externe API integraties.
 		$strict = $standard + [
-			'block_bad_user_agents' => true,
-			'block_bad_url_content' => true,
+			'block_bad_user_agents'   => true,
+			'block_bad_url_content'   => true,
+			'block_non_admin_backend' => true,
 		];
 
 		// Staging — alleen "stille" bescherming. Lockdown/file_mods uit
@@ -82,8 +88,11 @@ class MCM_Profiles {
 		// Toegang wordt geregeld via HTTP Basic Auth, niet via login-slug
 		// (dat is voor live). Daarom override config: login_slug = ''.
 		$staging = $basic;
-		$staging['human_verification'] = false;
-		$staging['auto_update_minor']  = false;
+		$staging['human_verification']     = false;
+		$staging['auto_update_minor']      = false;
+		// Op staging mogen test-emails (mailinator etc.) wél door — anders
+		// kun je de registratieflow niet testen met wegwerp-accounts.
+		$staging['block_disposable_email'] = false;
 
 		return [
 			'basic' => [
@@ -187,6 +196,10 @@ class MCM_Profiles {
 			'block_wp_includes_php',
 			// human verification
 			'human_verification',
+			// registratiebescherming
+			'registration_honeypot', 'block_disposable_email',
+			// backend toegang
+			'skip_admin_email_confirmation', 'block_non_admin_backend',
 		];
 	}
 
