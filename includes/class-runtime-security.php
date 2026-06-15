@@ -87,8 +87,9 @@ class MCM_Runtime_Security {
 	 * Early request filtering: bots, referers, URLs, PHP 404s.
 	 */
 	public function early_request_filter() {
-		// Skip admin and AJAX.
-		if ( is_admin() || wp_doing_ajax() || wp_doing_cron() ) {
+		// Skip WP-CLI, admin, AJAX and cron. WP-CLI heeft geen HTTP_USER_AGENT,
+		// wat anders als "bad user agent" werd geblokkeerd (exit) en wp-cli stilviel.
+		if ( ( defined( 'WP_CLI' ) && WP_CLI ) || is_admin() || wp_doing_ajax() || wp_doing_cron() ) {
 			return;
 		}
 

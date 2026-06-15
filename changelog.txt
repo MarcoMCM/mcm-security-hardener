@@ -1,5 +1,12 @@
 MCM Security Hardener — Changelog
 
+= 1.15.2 (2026-06-15) =
+* Fix: runtime request-filter (early_request_filter) sloeg WP-CLI niet over.
+  WP-CLI heeft geen HTTP_USER_AGENT; met block_bad_user_agents AAN werd dat
+  als "bad user agent" geblokkeerd (exit), waardoor wp-cli stilviel
+  (lege output, geen waarde). Nu wordt WP-CLI overgeslagen, net als admin/
+  ajax/cron. Geen wijziging voor echte HTTP-bezoekers.
+
 = 1.15.1 (2026-06-02) =
 * UX: Login-URL mail is nu een nette HTML-mail met klikbare knop
   "Naar inlogpagina" in plaats van een plain-text bericht
