@@ -1,5 +1,26 @@
 MCM Security Hardener — Changelog
 
+= 1.16.0 (2026-06-25) =
+* Nieuw: File Exposure Scanner (MCM_File_Exposure_Scanner)
+* Wekelijkse wp-cron + handmatige "Nu scannen"-knop
+* Detecteert losse test/debug-bestanden in webroot + wp-content top-level:
+  info.php, phpinfo.php, test.php, adminer*, phpmyadmin*, .env,
+  wp-config.php.bak/.save/.old/~, *.sql, *.sql.gz, dump*.sql,
+  backup*.zip, debug.log
+* Detecteert ook .php-bestanden waarvan de eerste 4KB een phpinfo()-call
+  bevatten (om phpinfo-dumps onder andere namen te vangen)
+* Filesystem-scan (NIET via HTTP) zodat Varnish-cache-hits geen valse
+  uitslagen geven — relevant op Xel
+* Bevindingen-tabel in admin met pad, grootte, mtime, publiek-gok
+* Mail naar MCM_Notifier-bestemming bij NIEUWE bevindingen (anti-spam
+  via hash-vergelijking met vorige scan)
+* VERWIJDERT NOOIT zelf — alleen detectie + melding
+* Mail-template waarschuwt voor Xel Varnish-purge na verwijdering
+* Optionele Apache .htaccess-block voor dezelfde patroon-categorie
+  (FilesMatch deny). Werkt alleen op Apache, niet nginx.
+* Defaults: scanner AAN, .htaccess-block UIT (bewuste keuze per site)
+* Profielen: scanner aan in alle profielen; htaccess-block aan in Strict
+
 = 1.15.2 (2026-06-15) =
 * Fix: runtime request-filter (early_request_filter) sloeg WP-CLI niet over.
   WP-CLI heeft geen HTTP_USER_AGENT; met block_bad_user_agents AAN werd dat

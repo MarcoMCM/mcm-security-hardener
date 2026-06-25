@@ -521,6 +521,8 @@ class MCM_Admin_Page {
 			'registration_honeypot', 'block_disposable_email',
 			// backend access
 			'skip_admin_email_confirmation', 'block_non_admin_backend',
+			// file exposure scanner
+			'exposure_scanner_enabled', 'block_risky_files_via_htaccess',
 		];
 
 		$settings = [];
@@ -703,6 +705,79 @@ class MCM_Admin_Page {
 					</table>
 				</div>
 				<?php endif; ?>
+
+				<!-- BLOOTGESTELDE BESTANDEN -->
+				<div class="mcm-section">
+					<h2>Blootgestelde bestanden</h2>
+					<p class="description">
+						Wekelijkse filesystem-scan naar losse "test"-bestanden die per ongeluk publiek bereikbaar zijn (info.php met phpinfo(), .env, wp-config-backups, SQL-dumps, Adminer, phpMyAdmin, etc.). Detecteert ook .php-bestanden die <code>phpinfo()</code> aanroepen.
+					</p>
+					<p class="description">
+						<strong>Geen automatisch verwijderen</strong> &mdash; alleen melden via admin-notice + mail naar de notify-bestemming. Verwijderen blijft een bewuste handeling.
+					</p>
+					<table class="form-table">
+						<?php
+						$this->render_toggle( 'exposure_scanner_enabled', 'Wekelijkse scan inschakelen', 'Plant een wp-cron-job die wekelijks de webroot scant. Bij nieuwe bevindingen krijg je een mail.', $settings );
+						$this->render_toggle( 'block_risky_files_via_htaccess', 'Risico-bestanden ook via .htaccess blokkeren', 'Voegt een Apache FilesMatch-blok toe dat directe HTTP-toegang tot info.php, *.sql, .env, wp-config backups, etc. weigert. Werkt alleen op Apache &mdash; op nginx geen effect.', $settings );
+						?>
+					</table>
+					<?php
+					$last = MCM_File_Exposure_Scanner::get_last_results();
+					if ( $last ) {
+						$findings = isset( $last['findings'] ) && is_array( $last['findings'] ) ? $last['findings'] : [];
+						$when     = isset( $last['timestamp'] ) ? wp_date( 'd-m-Y H:i', (int) $last['timestamp'] ) : '—';
+						?>
+						<p>
+							<strong>Laatste scan:</strong> <?php echo esc_html( $when ); ?>
+							&mdash;
+							<?php if ( empty( $findings ) ) : ?>
+								<span style="color:#1e7e34;">&#10003; Geen bevindingen.</span>
+							<?php else : ?>
+								<span style="color:#b32d2e;">&#9888; <?php echo (int) count( $findings ); ?> bevinding(en)</span>
+							<?php endif; ?>
+						</p>
+						<?php if ( ! empty( $findings ) ) : ?>
+						<table class="widefat striped" style="margin-top:8px;">
+							<thead>
+								<tr>
+									<th>Reden</th>
+									<th>Pad (relatief)</th>
+									<th style="width:90px;">Grootte</th>
+									<th style="width:120px;">Laatst gew.</th>
+									<th style="width:80px;">Publiek?</th>
+								</tr>
+							</thead>
+							<tbody>
+								<?php foreach ( $findings as $f ) : ?>
+								<tr>
+									<td><?php echo esc_html( $f['reason'] ); ?></td>
+									<td><code><?php echo esc_html( $f['relpath'] ); ?></code></td>
+									<td><?php echo (int) $f['size']; ?></td>
+									<td><?php echo $f['mtime'] ? esc_html( wp_date( 'd-m-Y', (int) $f['mtime'] ) ) : '—'; ?></td>
+									<td><?php echo ! empty( $f['public_guess'] ) ? '<span style="color:#b32d2e;">ja</span>' : '<span style="color:#646970;">nee</span>'; ?></td>
+								</tr>
+								<?php endforeach; ?>
+							</tbody>
+						</table>
+						<p class="description" style="margin-top:8px;">
+							<strong>Let op (Xel):</strong> ná het verwijderen van een bestand moet de Varnish-cache gepurged worden, anders blijft de URL publiek 200 geven. Vanaf de server:
+							<code>curl -X PURGE -H 'Host: &lt;domein&gt;' http://127.0.0.1/&lt;pad&gt;</code>
+						</p>
+						<?php endif; ?>
+						<?php
+					} else {
+						?>
+						<p><em>Nog geen scan uitgevoerd.</em></p>
+						<?php
+					}
+					?>
+					<p>
+						<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . MCM_File_Exposure_Scanner::ACTION_MANUAL_SCAN ), MCM_File_Exposure_Scanner::ACTION_MANUAL_SCAN ) ); ?>"
+							class="button button-secondary">
+							Nu scannen
+						</a>
+					</p>
+				</div>
 
 				<!-- HUMAN VERIFICATION -->
 				<div class="mcm-section">
@@ -1756,6 +1831,7 @@ class MCM_Admin_Page {
 			'audit_owner_protected' => [ 'warning', 'User audit: MCM-eigenaar wordt niet gedowngrade.' ],
 			'audit_super_protected' => [ 'warning', 'User audit: super-admin (multisite) wordt niet gedowngrade.' ],
 			'audit_no_admin_downgrade' => [ 'error', 'User audit: alleen een administrator mag een administrator downgraden.' ],
+			'exposure_scan_done' => [ 'success', 'File-exposure scan is uitgevoerd. Zie de "Blootgestelde bestanden"-sectie voor het resultaat.' ],
 		];
 
 		if ( 'audit_downgraded' === $status ) {

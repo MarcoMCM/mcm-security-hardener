@@ -263,6 +263,47 @@ HTACCESS;
 HTACCESS;
 		}
 
+		// 13. Blokkeer risico-bestandsnamen die de exposure-scanner detecteert.
+		// Zelfde lijst-categorie als MCM_File_Exposure_Scanner::risky_filename_patterns()
+		// maar dan als preventieve laag op Apache-niveau.
+		if ( ! empty( $s['block_risky_files_via_htaccess'] ) ) {
+			$rules .= <<<'HTACCESS'
+# Block risky test/debug files (info.php, .env, SQL-dumps, wp-config backups, etc.)
+<FilesMatch "^(info|phpinfo|test|php|i|adminer.*)\.php$">
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>
+<FilesMatch "(^\.env|^\.env\.|wp-config\.php\.(bak|save|old|orig|tmp|txt)$|wp-config\.php~$)">
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>
+<FilesMatch "\.(sql|sql\.gz)$">
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^phpmyadmin(/|$) - [F,L,NC]
+</IfModule>
+
+HTACCESS;
+		}
+
 		return $rules;
 	}
 

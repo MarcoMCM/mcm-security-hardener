@@ -62,6 +62,8 @@ class MCM_Profiles {
 			'block_disposable_email'    => true,
 			// backend toegang
 			'skip_admin_email_confirmation' => true,
+			// file exposure scanner
+			'exposure_scanner_enabled'      => true,
 		];
 
 		// Basic + lockdown + xmlrpc blokkeren + script concat blokkeren.
@@ -77,9 +79,10 @@ class MCM_Profiles {
 		// Standard + agressieve URL/UA-filtering + klant-rollen niet in backend.
 		// Risico false positives bij externe API integraties.
 		$strict = $standard + [
-			'block_bad_user_agents'   => true,
-			'block_bad_url_content'   => true,
-			'block_non_admin_backend' => true,
+			'block_bad_user_agents'           => true,
+			'block_bad_url_content'           => true,
+			'block_non_admin_backend'         => true,
+			'block_risky_files_via_htaccess'  => true,
 		];
 
 		// Staging — alleen "stille" bescherming. Lockdown/file_mods uit
@@ -200,6 +203,8 @@ class MCM_Profiles {
 			'registration_honeypot', 'block_disposable_email',
 			// backend toegang
 			'skip_admin_email_confirmation', 'block_non_admin_backend',
+			// file exposure scanner
+			'exposure_scanner_enabled', 'block_risky_files_via_htaccess',
 		];
 	}
 
