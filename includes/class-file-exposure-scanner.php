@@ -75,8 +75,18 @@ class MCM_File_Exposure_Scanner {
 	 */
 	public static function maybe_schedule_cron() {
 		$settings = get_option( 'mcm_security_settings', [] );
-		$enabled  = ! empty( $settings['exposure_scanner_enabled'] );
-		$next     = wp_next_scheduled( self::CRON_HOOK );
+		// Backward-compat: oudere sites missen de key nog in DB. Val terug op
+		// de plugin-default zodat de cron toch start zonder dat de admin
+		// eerst handmatig opslaat na update.
+		if ( ! array_key_exists( 'exposure_scanner_enabled', $settings ) ) {
+			$defaults = method_exists( 'MCM_Security_Hardener', 'get_defaults' )
+				? MCM_Security_Hardener::get_defaults()
+				: [];
+			$enabled  = ! empty( $defaults['exposure_scanner_enabled'] );
+		} else {
+			$enabled = ! empty( $settings['exposure_scanner_enabled'] );
+		}
+		$next = wp_next_scheduled( self::CRON_HOOK );
 
 		if ( $enabled && ! $next ) {
 			wp_schedule_event( time() + HOUR_IN_SECONDS, self::CRON_SCHEDULE, self::CRON_HOOK );
@@ -262,7 +272,16 @@ class MCM_File_Exposure_Scanner {
 	 */
 	public static function run_cron_scan() {
 		$settings = get_option( 'mcm_security_settings', [] );
-		if ( empty( $settings['exposure_scanner_enabled'] ) ) {
+		// Backward-compat fallback (zie maybe_schedule_cron).
+		if ( ! array_key_exists( 'exposure_scanner_enabled', $settings ) ) {
+			$defaults = method_exists( 'MCM_Security_Hardener', 'get_defaults' )
+				? MCM_Security_Hardener::get_defaults()
+				: [];
+			$enabled = ! empty( $defaults['exposure_scanner_enabled'] );
+		} else {
+			$enabled = ! empty( $settings['exposure_scanner_enabled'] );
+		}
+		if ( ! $enabled ) {
 			return;
 		}
 		self::run_and_maybe_notify();

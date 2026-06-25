@@ -472,6 +472,12 @@ class MCM_Admin_Page {
 		$settings['human_verification_delay'] = isset( $_POST['human_verification_delay'] )
 			? max( 1, min( 30, (int) $_POST['human_verification_delay'] ) )
 			: 3;
+		$settings['php_error_warning_threshold_per_hour'] = isset( $_POST['php_error_warning_threshold_per_hour'] )
+			? max( 1, min( 5000, (int) $_POST['php_error_warning_threshold_per_hour'] ) )
+			: 50;
+		$settings['php_error_post_upgrade_threshold_per_hour'] = isset( $_POST['php_error_post_upgrade_threshold_per_hour'] )
+			? max( 1, min( 5000, (int) $_POST['php_error_post_upgrade_threshold_per_hour'] ) )
+			: 10;
 
 		// Bewaar de mail-ontvangerslijst — anders raakt de eerder aangevinkte
 		// selectie kwijt als per ongeluk op "Activeer Alles" geklikt wordt.
@@ -523,6 +529,8 @@ class MCM_Admin_Page {
 			'skip_admin_email_confirmation', 'block_non_admin_backend',
 			// file exposure scanner
 			'exposure_scanner_enabled', 'block_risky_files_via_htaccess',
+			// php error watcher
+			'php_error_watcher_enabled',
 		];
 
 		$settings = [];
@@ -539,6 +547,12 @@ class MCM_Admin_Page {
 		$settings['human_verification_delay'] = isset( $post['human_verification_delay'] )
 			? max( 1, min( 30, (int) $post['human_verification_delay'] ) )
 			: 3;
+		$settings['php_error_warning_threshold_per_hour'] = isset( $post['php_error_warning_threshold_per_hour'] )
+			? max( 1, min( 5000, (int) $post['php_error_warning_threshold_per_hour'] ) )
+			: 50;
+		$settings['php_error_post_upgrade_threshold_per_hour'] = isset( $post['php_error_post_upgrade_threshold_per_hour'] )
+			? max( 1, min( 5000, (int) $post['php_error_post_upgrade_threshold_per_hour'] ) )
+			: 10;
 
 		// Mail-bij-slug-wijziging.
 		$settings['mail_admins_on_slug_change'] = ! empty( $post['mail_admins_on_slug_change'] );
@@ -776,6 +790,53 @@ class MCM_Admin_Page {
 							class="button button-secondary">
 							Nu scannen
 						</a>
+					</p>
+				</div>
+
+				<!-- PHP ERROR WATCHER -->
+				<div class="mcm-section">
+					<h2>PHP Error Watcher</h2>
+					<p class="description">
+						Uurlijkse monitor van <code>wp-content/debug.log</code> op nieuwe fatal/parse/warning/deprecated entries. Mailt direct bij fatal of parse error; bij warnings/deprecations alleen boven drempel.
+					</p>
+					<p class="description">
+						Detecteert automatisch een PHP-versie-wissel en zet de eerste 7 dagen na de upgrade in extra gevoelige modus &mdash; precies wat je nodig hebt tijdens een PHP-major upgrade.
+					</p>
+					<table class="form-table">
+						<?php
+						$this->render_toggle( 'php_error_watcher_enabled', 'PHP error watcher inschakelen', 'Plant een uurlijkse wp-cron die nieuwe entries in debug.log vergelijkt met de vorige check.', $settings );
+						?>
+						<tr>
+							<th scope="row"><label for="php_error_warning_threshold_per_hour">Drempel (normaal)</label></th>
+							<td>
+								<input type="number" id="php_error_warning_threshold_per_hour" name="php_error_warning_threshold_per_hour"
+									value="<?php echo esc_attr( $settings['php_error_warning_threshold_per_hour'] ?? 50 ); ?>"
+									min="1" max="5000" step="1" style="width: 100px;" />
+								<p class="description">Boven dit aantal warnings+deprecations sinds vorige check &rarr; mail. Standaard: 50.</p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row"><label for="php_error_post_upgrade_threshold_per_hour">Drempel (post-PHP-upgrade)</label></th>
+							<td>
+								<input type="number" id="php_error_post_upgrade_threshold_per_hour" name="php_error_post_upgrade_threshold_per_hour"
+									value="<?php echo esc_attr( $settings['php_error_post_upgrade_threshold_per_hour'] ?? 10 ); ?>"
+									min="1" max="5000" step="1" style="width: 100px;" />
+								<p class="description">Strenger in de 7 dagen na een gedetecteerde PHP-versie-wissel. Standaard: 10.</p>
+							</td>
+						</tr>
+					</table>
+					<?php
+					$st = MCM_PHP_Error_Watcher::get_status();
+					?>
+					<p style="margin-top:8px;">
+						<strong>Status</strong> &mdash;
+						PHP nu: <code><?php echo esc_html( $st['current_version'] ); ?></code>;
+						laatst gezien: <code><?php echo esc_html( $st['last_version'] ?: '—' ); ?></code>;
+						<?php if ( $st['post_upgrade'] ) : ?>
+							<span style="color:#b32d2e;">🚨 in post-upgrade window (extra gevoelig)</span>;
+						<?php endif; ?>
+						debug.log: <?php echo $st['log_exists'] ? '<span style="color:#1e7e34;">aanwezig</span>' : '<span style="color:#646970;">ontbreekt (WP_DEBUG_LOG niet aan?)</span>'; ?>;
+						volgende cron: <?php echo $st['cron_next_run'] ? esc_html( wp_date( 'd-m-Y H:i', (int) $st['cron_next_run'] ) ) : '—'; ?>.
 					</p>
 				</div>
 

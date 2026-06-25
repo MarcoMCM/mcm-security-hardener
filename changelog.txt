@@ -1,5 +1,20 @@
 MCM Security Hardener — Changelog
 
+= 1.17.0 (2026-06-25) =
+* Nieuw: PHP Error Watcher (MCM_PHP_Error_Watcher)
+* Uurlijkse wp-cron monitor van wp-content/debug.log op nieuwe entries
+* Telt fatal/parse/warning/deprecated sinds vorige check
+* Bij FATAL of PARSE error: directe mail (geen 24u throttle)
+* Bij warnings/deprecations boven drempel per uur: mail (default 50)
+* Detecteert PHP-versie-wissel automatisch via PHP_VERSION-vergelijking
+* Eerste 7 dagen na detectie: extra gevoelige drempel (default 10/u)
+* Anti-spam: hash-vergelijking met vorige mail-signature
+* Mail-template met top-5 gededupliceerde voorbeelden per type
+* Status-paneel in admin: huidige PHP, vorige PHP, post-upgrade-state,
+  debug.log aanwezigheid, volgende cron-tijdstip
+* Log-rotatie veilig: detecteert file-truncate en begint opnieuw
+* Memory-cap: max 1 MiB per check (filter mcm_php_error_watcher_max_read_bytes)
+
 = 1.16.0 (2026-06-25) =
 * Nieuw: File Exposure Scanner (MCM_File_Exposure_Scanner)
 * Wekelijkse wp-cron + handmatige "Nu scannen"-knop
