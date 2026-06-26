@@ -26,6 +26,10 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | Feature | Wat |
 |---|---|
 | **WP_DEBUG productie-watchdog** | Detecteert `WP_DEBUG=true` op productie-omgevingen → admin-notice + 1×/24u mail naar de eigenaar |
+| **File Exposure Scanner** | Wekelijkse filesystem-scan naar blootgestelde gevoelige bestanden (info.php/phpinfo(), `.env`, wp-config-backups, SQL-dumps, Adminer, phpMyAdmin) → mail bij nieuwe bevindingen, detectie-only |
+| **Anomaly Scanner** | Wekelijkse scan van root + `wp-content` (top-level) op onbekende bestanden/mappen via whitelist; severity-tiers (HIGH = los `.php`/shell, MEDIUM = onbekende root-map, LOW = info). Mailt alleen bij HIGH/MEDIUM, detectie-only |
+| **PHP Error Watcher** | Uurlijkse monitor van `debug.log`; mailt direct bij fatal/parse. Warning/deprecated tellen alleen mee voor de drempel als ze uit eigen code komen (core/systeem = ruis, alarmeert niet). Extra gevoelig 7 dagen na een PHP-versie-wissel |
+| **Toolbar-snelkoppeling** | "MCM Security" in de WP-adminbar (front + admin, alleen admins); kleurt rood als de anomalie-scan uit staat, met 1-klik aan/uit-toggle |
 | **User Audit** | Lijst van alle users met rol Administrator/Editor/Author/Contributor met 1-klik downgrade naar de MCM Klant-rol (mits Site Optimizer aanwezig) of naar Subscriber |
 | **WP major-update compat-check** | Bij een aankomende major WP-update: vergelijkt de "Tested up to" van alle actieve plugins en toont per plugin Compatibel / Niet getest / Onbekend |
 | **Notifier** | Alle plugin-mails en admin-notices gaan naar het centrale notificatie-adres (default `marco@mcmwebsites.nl`), niet naar de klant |
@@ -86,6 +90,10 @@ define( 'MCM_SECURITY_DISABLE_DEBUG_WATCHDOG', true );
 | `mcm_security_notify_email` | Notificatie-email override |
 | `mcm_blocked_email_domains` | Wegwerpdomein-lijst uitbreiden |
 | `mcm_security_debug_watchdog_enabled` | WP_DEBUG-watchdog uitschakelen |
+| `mcm_anomaly_root_whitelist` | Bekende root-items voor de anomalie-scan (lowercase namen) |
+| `mcm_anomaly_wpcontent_whitelist` | Bekende `wp-content`-items voor de anomalie-scan |
+| `mcm_php_error_watcher_own_paths` | Pad-fragmenten die als "eigen code" gelden voor de error-drempel |
+| `mcm_php_error_watcher_max_read_bytes` | Max bytes per check uit `debug.log` (default 1 MiB) |
 
 ---
 
@@ -114,6 +122,11 @@ mcm-security-hardener/
 │   ├── class-debug-watchdog.php       WP_DEBUG productie-detector
 │   ├── class-user-audit.php           Users met verhoogde rechten
 │   ├── class-update-compat-check.php  WP-update plugin-compat tabel
+│   ├── class-backend-access.php       Skip email-confirm + non-admin backend-block
+│   ├── class-file-exposure-scanner.php  Scan op blootgestelde gevoelige bestanden
+│   ├── class-anomaly-scanner.php      Scan op vreemde bestanden/mappen (whitelist)
+│   ├── class-admin-bar.php            Toolbar-snelkoppeling + scan aan/uit-toggle
+│   ├── class-php-error-watcher.php    debug.log-monitor met herkomst-filtering
 │   ├── class-profiles.php             Basic/Standard/Strict/Staging-profielen
 │   └── class-notifier.php             Centrale email/notice-helper
 └── vendor/plugin-update-checker/      GitHub self-update (YahnisElsts/PUC v5)
