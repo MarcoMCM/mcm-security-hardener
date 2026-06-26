@@ -1,5 +1,42 @@
 MCM Security Hardener — Changelog
 
+= 1.18.0 (2026-06-26) =
+* Nieuw: Anomaly Scanner (MCM_Anomaly_Scanner) — vreemde bestanden/mappen
+* Wekelijkse wp-cron + handmatige "Nu scannen"-knop in admin
+* Whitelist-aanpak: scant root + wp-content (alleen top-level, geen recursie)
+  en meldt alles wat NIET op de lijst van bekende WP-/host-/plugin-items staat
+* Vangt juist de onbekende dropper/shell waarvan we de naam niet vooraf kennen
+* Severity-tiers tegen alarm-moeheid:
+  - HIGH   = onbekend .php-bestand in root of los in wp-content (shell-signaal)
+  - MEDIUM = onbekende map in de webroot
+  - LOW    = onbekende map in wp-content of onbekend niet-uitvoerbaar bestand
+* Mailt alleen bij HIGH/MEDIUM; LOW staat alleen in de admin-tabel (anti-ruis)
+* Anti-spam: hash-vergelijking met vorige mail-signature
+* Bekende WP-dropins (object-cache.php, advanced-cache.php, db.php, ...) en
+  veelvoorkomende plugin-/host-mappen staan op de whitelist
+* Per site bij te stellen via filters mcm_anomaly_root_whitelist en
+  mcm_anomaly_wpcontent_whitelist (lowercase namen) — geen code-wijziging nodig
+* WP Rocket (wp-rocket-config) en WPvivid-mappen op de whitelist gezet
+* Verwijdert NOOIT zelf — detectie + melding only
+* Nieuw: snelkoppelingen in de WordPress-toolbar (MCM_Admin_Bar)
+  - Top-node "MCM Security" op front + admin (alleen voor admins)
+  - Kleurt ROOD ("scan UIT") zodra de anomalie-scan uit staat — altijd
+    zichtbaar zodat je niet vergeet 'm weer aan te zetten
+  - 1-klik aan/uit-toggle voor de anomalie-scan (nonce-beveiligd, herplant
+    of verwijdert de cron meteen)
+  - Sub-links "Nu scannen", "Instellingen openen" + laatste-scan-statusregel
+* Verbeterd: PHP Error Watcher herkomst-filtering tegen mail-moeheid
+  - Warning/deprecated tellen alleen mee voor de drempel als ze uit eigen
+    code komen (wp-content/plugins|themes|mu-plugins); core (wp-includes,
+    wp-login.php) en systeem (/etc/...) zijn ruis en alarmeren niet meer
+  - Fatal/parse blijven altijd direct mailen, ongeacht herkomst
+  - Notices tellen nooit meer mee voor de mail
+  - Mail toont totaal + eigen-code-telling + grootste ruisbronnen
+  - Anti-spam-hash nu op de relevante tellingen (oplopende ruis triggert
+    geen herhaalde mail meer)
+  - Nieuwe filter mcm_php_error_watcher_own_paths om "eigen code" per site
+    bij te stellen
+
 = 1.17.0 (2026-06-25) =
 * Nieuw: PHP Error Watcher (MCM_PHP_Error_Watcher)
 * Uurlijkse wp-cron monitor van wp-content/debug.log op nieuwe entries

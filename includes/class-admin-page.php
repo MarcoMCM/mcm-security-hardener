@@ -529,6 +529,8 @@ class MCM_Admin_Page {
 			'skip_admin_email_confirmation', 'block_non_admin_backend',
 			// file exposure scanner
 			'exposure_scanner_enabled', 'block_risky_files_via_htaccess',
+			// anomaly scanner
+			'anomaly_scanner_enabled',
 			// php error watcher
 			'php_error_watcher_enabled',
 		];
@@ -787,6 +789,84 @@ class MCM_Admin_Page {
 					?>
 					<p>
 						<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . MCM_File_Exposure_Scanner::ACTION_MANUAL_SCAN ), MCM_File_Exposure_Scanner::ACTION_MANUAL_SCAN ) ); ?>"
+							class="button button-secondary">
+							Nu scannen
+						</a>
+					</p>
+				</div>
+
+				<!-- VREEMDE BESTANDEN & MAPPEN (ANOMALIE-SCAN) -->
+				<div class="mcm-section">
+					<h2>Vreemde bestanden &amp; mappen</h2>
+					<p class="description">
+						Wekelijkse scan van de webroot en <code>wp-content</code> (alleen het bovenste niveau) op bestanden en mappen die niet bij een standaard WordPress horen. Een onbekend los <code>.php</code>-bestand in de root of in wp-content is het klassieke signaal van een gedropte shell.
+					</p>
+					<p class="description">
+						<strong>Severity</strong>: <span style="color:#b32d2e;">HIGH</span> = onbekend PHP-bestand (verdacht), <span style="color:#bd8600;">MEDIUM</span> = onbekende map in de root, <span style="color:#646970;">LOW</span> = onbekende map in wp-content of onbekend niet-uitvoerbaar bestand. Alleen HIGH/MEDIUM sturen een mail; LOW staat hieronder ter info.
+					</p>
+					<p class="description">
+						<strong>Geen automatisch verwijderen</strong> &mdash; alleen melden. Herken je een item niet, behandel het dan als verdacht en onderzoek de inhoud vóór je iets weggooit.
+					</p>
+					<table class="form-table">
+						<?php
+						$this->render_toggle( 'anomaly_scanner_enabled', 'Wekelijkse scan inschakelen', 'Plant een wp-cron-job die wekelijks root + wp-content scant op onbekende bestanden/mappen. Bij HIGH/MEDIUM-bevindingen krijg je een mail.', $settings );
+						?>
+					</table>
+					<?php
+					$a_last = MCM_Anomaly_Scanner::get_last_results();
+					if ( $a_last ) {
+						$a_findings = isset( $a_last['findings'] ) && is_array( $a_last['findings'] ) ? $a_last['findings'] : [];
+						$a_when     = isset( $a_last['timestamp'] ) ? wp_date( 'd-m-Y H:i', (int) $a_last['timestamp'] ) : '—';
+						?>
+						<p>
+							<strong>Laatste scan:</strong> <?php echo esc_html( $a_when ); ?>
+							&mdash;
+							<?php if ( empty( $a_findings ) ) : ?>
+								<span style="color:#1e7e34;">&#10003; Geen bevindingen.</span>
+							<?php else : ?>
+								<span style="color:#b32d2e;">&#9888; <?php echo (int) count( $a_findings ); ?> bevinding(en)</span>
+							<?php endif; ?>
+						</p>
+						<?php if ( ! empty( $a_findings ) ) : ?>
+						<table class="widefat striped" style="margin-top:8px;">
+							<thead>
+								<tr>
+									<th style="width:80px;">Severity</th>
+									<th>Reden</th>
+									<th>Pad (relatief)</th>
+									<th style="width:60px;">Type</th>
+									<th style="width:120px;">Laatst gew.</th>
+								</tr>
+							</thead>
+							<tbody>
+								<?php
+								foreach ( $a_findings as $f ) :
+									$sev_color = [ 'high' => '#b32d2e', 'medium' => '#bd8600', 'low' => '#646970' ];
+									$col = isset( $sev_color[ $f['severity'] ] ) ? $sev_color[ $f['severity'] ] : '#646970';
+								?>
+								<tr>
+									<td><strong style="color:<?php echo esc_attr( $col ); ?>;"><?php echo esc_html( strtoupper( $f['severity'] ) ); ?></strong></td>
+									<td><?php echo esc_html( $f['reason'] ); ?></td>
+									<td><code><?php echo esc_html( $f['relpath'] ); ?></code></td>
+									<td><?php echo ! empty( $f['is_dir'] ) ? 'map' : 'bestand'; ?></td>
+									<td><?php echo $f['mtime'] ? esc_html( wp_date( 'd-m-Y', (int) $f['mtime'] ) ) : '—'; ?></td>
+								</tr>
+								<?php endforeach; ?>
+							</tbody>
+						</table>
+						<p class="description" style="margin-top:8px;">
+							Herken je een item als legitiem? Voeg het toe via de filter <code>mcm_anomaly_root_whitelist</code> of <code>mcm_anomaly_wpcontent_whitelist</code> (lowercase naam) om de melding permanent stil te zetten.
+						</p>
+						<?php endif; ?>
+						<?php
+					} else {
+						?>
+						<p><em>Nog geen scan uitgevoerd.</em></p>
+						<?php
+					}
+					?>
+					<p>
+						<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . MCM_Anomaly_Scanner::ACTION_MANUAL_SCAN ), MCM_Anomaly_Scanner::ACTION_MANUAL_SCAN ) ); ?>"
 							class="button button-secondary">
 							Nu scannen
 						</a>
@@ -1893,6 +1973,9 @@ class MCM_Admin_Page {
 			'audit_super_protected' => [ 'warning', 'User audit: super-admin (multisite) wordt niet gedowngrade.' ],
 			'audit_no_admin_downgrade' => [ 'error', 'User audit: alleen een administrator mag een administrator downgraden.' ],
 			'exposure_scan_done' => [ 'success', 'File-exposure scan is uitgevoerd. Zie de "Blootgestelde bestanden"-sectie voor het resultaat.' ],
+			'anomaly_scan_done' => [ 'success', 'Anomalie-scan is uitgevoerd. Zie de "Vreemde bestanden &amp; mappen"-sectie voor het resultaat.' ],
+			'anomaly_enabled' => [ 'success', 'Anomalie-scan staat nu AAN.' ],
+			'anomaly_disabled' => [ 'warning', 'Anomalie-scan staat nu UIT. Vergeet niet \'m na je werk weer aan te zetten (rode knop in de toolbar).' ],
 		];
 
 		if ( 'audit_downgraded' === $status ) {

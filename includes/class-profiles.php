@@ -64,6 +64,8 @@ class MCM_Profiles {
 			'skip_admin_email_confirmation' => true,
 			// file exposure scanner
 			'exposure_scanner_enabled'      => true,
+			// anomaly scanner (vreemde bestanden/mappen)
+			'anomaly_scanner_enabled'       => true,
 			// php error watcher
 			'php_error_watcher_enabled'     => true,
 		];
@@ -207,6 +209,8 @@ class MCM_Profiles {
 			'skip_admin_email_confirmation', 'block_non_admin_backend',
 			// file exposure scanner
 			'exposure_scanner_enabled', 'block_risky_files_via_htaccess',
+			// anomaly scanner
+			'anomaly_scanner_enabled',
 			// php error watcher
 			'php_error_watcher_enabled',
 		];

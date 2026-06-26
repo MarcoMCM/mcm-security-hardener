@@ -12,22 +12,32 @@
  *   - Wp-cron elk uur. Leest alleen NIEUWE bytes in debug.log sinds vorige
  *     check (offset opgeslagen in option). Bij log-rotatie (huidige size <
  *     laatste offset) begint hij opnieuw vanaf 0.
- *   - Telt entries per type: Fatal / Parse error / Warning / Deprecated.
+ *   - Telt entries per type: Fatal / Parse error / Warning / Deprecated / Notice.
  *   - Detecteert een PHP-versie-wissel (vergelijkt PHP_VERSION met opgeslagen
  *     vorige) en zet de "post-upgrade" modus aan voor 7 dagen — strenger
  *     drempel om kleine stijgingen sneller te vangen.
- *   - Mail-triggers (anti-spam via signature-hash):
- *       * Fatal of Parse error: >= 1 in deze check  -> direct mail
- *       * Warning/Deprecated:  > drempel per uur    -> mail
+ *   - Herkomst-filtering tegen mail-moeheid: warning/deprecated tellen alleen
+ *     mee voor de drempel als ze uit JOUW EIGEN code komen (wp-content/
+ *     plugins|themes|mu-plugins). Core-ruis (wp-includes, wp-login.php) en
+ *     systeem-paden (/etc/...) blijven in de log staan maar alarmeren niet —
+ *     daar kun je toch niets aan doen. Notices tellen nooit mee.
+ *   - Mail-triggers (anti-spam via signature-hash op de relevante tellingen):
+ *       * Fatal of Parse error: >= 1 in deze check        -> direct mail (elke herkomst)
+ *       * Warning/Deprecated UIT EIGEN CODE: > drempel/uur -> mail
+ *   - De mail toont het totaal én de eigen-code-telling én de grootste
+ *     ruisbronnen, zodat een hoog totaal meteen te plaatsen is.
  *
  * Drempels (normaal/post-upgrade) instelbaar via settings:
  *   - php_error_warning_threshold_per_hour          default 50
  *   - php_error_post_upgrade_threshold_per_hour     default 10
  *
- * Filter:
+ * Filters:
  *   - 'mcm_php_error_watcher_max_read_bytes' (default 1 MiB) — kap op het
  *     aantal bytes dat per check uit debug.log gelezen wordt, om memory te
  *     beperken bij plotselinge log-explosies.
+ *   - 'mcm_php_error_watcher_own_paths' (array van pad-fragmenten) — bepaalt
+ *     wat als "eigen code" geldt voor de drempel. Default: wp-content/
+ *     plugins|themes|mu-plugins.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -140,7 +150,9 @@ class MCM_PHP_Error_Watcher {
 			return [ 'read' => 0, 'upgrade' => $upgrade ];
 		}
 
-		$counts = self::count_entries( $chunk );
+		$analysis = self::analyze( $chunk );
+		$counts   = $analysis['total'];
+		$own      = $analysis['own'];
 
 		$post_upgrade = self::is_in_post_upgrade_window();
 		$threshold    = $post_upgrade
@@ -150,23 +162,28 @@ class MCM_PHP_Error_Watcher {
 		$should_mail = false;
 		$reason      = '';
 
+		// Fatal/parse: altijd mailen, ongeacht herkomst (kapot = kapot).
+		// Warning/deprecated: alleen de meldingen uit je EIGEN code
+		// (wp-content/plugins|themes|mu-plugins) tellen mee voor de drempel.
+		// Core (wp-includes, wp-login.php) en systeem (/etc/...) zijn ruis
+		// waar je toch niets aan kunt doen — die blijven wel in de log staan.
 		if ( $counts['fatal'] > 0 || $counts['parse'] > 0 ) {
 			$should_mail = true;
 			$reason      = 'fatal_or_parse';
-		} elseif ( ( $counts['warning'] + $counts['deprecated'] ) > $threshold ) {
+		} elseif ( ( $own['warning'] + $own['deprecated'] ) > $threshold ) {
 			$should_mail = true;
 			$reason      = $post_upgrade ? 'threshold_exceeded_post_upgrade' : 'threshold_exceeded';
 		}
 
 		if ( $should_mail ) {
-			$samples = self::extract_samples( $chunk );
-			self::maybe_send_mail( $counts, $samples, $reason, $post_upgrade, $upgrade );
+			self::maybe_send_mail( $analysis, $reason, $post_upgrade, $upgrade );
 		}
 
 		return [
 			'new_bytes'    => $new_bytes,
 			'read'         => $read,
 			'counts'       => $counts,
+			'own'          => $own,
 			'threshold'    => $threshold,
 			'post_upgrade' => $post_upgrade,
 			'should_mail'  => $should_mail,
@@ -176,65 +193,156 @@ class MCM_PHP_Error_Watcher {
 	}
 
 	/**
-	 * Tel entries per type in een log-chunk.
+	 * Analyseer een log-chunk: tel per type, splits warning/deprecated naar
+	 * "eigen code" (telt mee voor de drempel) versus core/systeem-ruis, en
+	 * verzamel gededupliceerde voorbeelden + de grootste ruisbronnen.
 	 *
-	 * @return array{fatal:int,parse:int,warning:int,deprecated:int,notice:int}
+	 * @return array{
+	 *   total:array{fatal:int,parse:int,warning:int,deprecated:int,notice:int},
+	 *   own:array{warning:int,deprecated:int},
+	 *   samples:array<string,string[]>,
+	 *   noise:array<string,int>
+	 * }
 	 */
-	private static function count_entries( $chunk ) {
-		return [
-			'fatal'      => preg_match_all( '/PHP Fatal/i', $chunk ),
-			'parse'      => preg_match_all( '/PHP Parse error/i', $chunk ),
-			'warning'    => preg_match_all( '/PHP Warning/i', $chunk ),
-			'deprecated' => preg_match_all( '/PHP Deprecated/i', $chunk ),
-			'notice'     => preg_match_all( '/PHP Notice/i', $chunk ),
-		];
-	}
+	private static function analyze( $chunk ) {
+		$total   = [ 'fatal' => 0, 'parse' => 0, 'warning' => 0, 'deprecated' => 0, 'notice' => 0 ];
+		$own     = [ 'warning' => 0, 'deprecated' => 0 ];
+		$samples = [ 'fatal' => [], 'parse' => [], 'deprecated' => [], 'warning' => [] ];
+		$noise   = []; // bronbestand => aantal (alleen core/systeem warning+deprecated)
+		$seen    = [];
 
-	/**
-	 * Pak een paar voorbeelden per kritiek type, gededupliceerd op message-
-	 * signatuur (eerste 120 tekens), zodat de mail niet uitloopt op
-	 * herhaalde identieke errors.
-	 *
-	 * @return array<string,string[]>
-	 */
-	private static function extract_samples( $chunk ) {
-		$samples = [
-			'fatal'      => [],
-			'parse'      => [],
-			'deprecated' => [],
-			'warning'    => [],
-		];
-		$lines = preg_split( '/\R/', $chunk );
-		$seen  = [];
-
-		foreach ( $lines as $line ) {
+		foreach ( preg_split( '/\R/', $chunk ) as $line ) {
 			$line = trim( $line );
 			if ( '' === $line ) {
 				continue;
 			}
-			$type = null;
-			if ( preg_match( '/PHP Fatal/i', $line ) ) {
-				$type = 'fatal';
-			} elseif ( preg_match( '/PHP Parse error/i', $line ) ) {
-				$type = 'parse';
-			} elseif ( preg_match( '/PHP Deprecated/i', $line ) ) {
-				$type = 'deprecated';
-			} elseif ( preg_match( '/PHP Warning/i', $line ) ) {
-				$type = 'warning';
-			}
+			$type = self::line_type( $line );
 			if ( null === $type ) {
 				continue;
 			}
-			$sig = substr( $line, 0, 120 );
-			if ( isset( $seen[ $sig ] ) ) {
+			$total[ $type ]++;
+
+			// Notices nooit relevant voor de drempel — alleen meetellen.
+			if ( 'notice' === $type ) {
 				continue;
 			}
-			$seen[ $sig ] = true;
-			if ( count( $samples[ $type ] ) < 5 ) {
-				$samples[ $type ][] = $line;
+
+			$is_own = self::is_own_code_line( $line );
+
+			if ( 'warning' === $type || 'deprecated' === $type ) {
+				if ( $is_own ) {
+					$own[ $type ]++;
+				} else {
+					$src = self::source_file( $line );
+					$key = $src ? self::short_path( $src ) : '(onbekende bron)';
+					$noise[ $key ] = ( $noise[ $key ] ?? 0 ) + 1;
+				}
+			}
+
+			// Voorbeelden: fatal/parse altijd; warning/deprecated alleen uit
+			// eigen code (de ruis hoeft hij niet als "voorbeeld" te zien).
+			$want_sample = ( 'fatal' === $type || 'parse' === $type ) ? true : $is_own;
+			if ( $want_sample && isset( $samples[ $type ] ) ) {
+				$sig = substr( $line, 0, 120 );
+				if ( ! isset( $seen[ $sig ] ) ) {
+					$seen[ $sig ] = true;
+					if ( count( $samples[ $type ] ) < 5 ) {
+						$samples[ $type ][] = $line;
+					}
+				}
 			}
 		}
-		return $samples;
+
+		arsort( $noise );
+		return [
+			'total'   => $total,
+			'own'     => $own,
+			'samples' => $samples,
+			'noise'   => $noise,
+		];
+	}
+
+	/**
+	 * Bepaal het PHP-fouttype van één log-regel (of null als het er geen is).
+	 *
+	 * @return string|null
+	 */
+	private static function line_type( $line ) {
+		if ( preg_match( '/PHP Fatal/i', $line ) ) {
+			return 'fatal';
+		}
+		if ( preg_match( '/PHP Parse error/i', $line ) ) {
+			return 'parse';
+		}
+		if ( preg_match( '/PHP Deprecated/i', $line ) ) {
+			return 'deprecated';
+		}
+		if ( preg_match( '/PHP Warning/i', $line ) ) {
+			return 'warning';
+		}
+		if ( preg_match( '/PHP Notice/i', $line ) ) {
+			return 'notice';
+		}
+		return null;
+	}
+
+	/**
+	 * Haal het bronbestand uit een PHP-foutregel ("... in /pad/bestand.php on
+	 * line N"). Retourneert null als er geen pad in staat.
+	 *
+	 * @return string|null
+	 */
+	private static function source_file( $line ) {
+		if ( preg_match( '#\bin (/[^ ]+\.php)(?: on line \d+)?#i', $line, $m ) ) {
+			return $m[1];
+		}
+		return null;
+	}
+
+	/**
+	 * Pad-fragmenten die als "eigen code" gelden — alleen fouten hieruit
+	 * tellen mee voor de warning/deprecated-drempel. Per site aan te passen
+	 * via de filter (bv. om een extra map mee te tellen).
+	 *
+	 * @return string[]
+	 */
+	private static function own_code_paths() {
+		return (array) apply_filters( 'mcm_php_error_watcher_own_paths', [
+			'/wp-content/plugins/',
+			'/wp-content/themes/',
+			'/wp-content/mu-plugins/',
+		] );
+	}
+
+	/**
+	 * Komt deze foutregel uit eigen code (plugins/thema's/mu-plugins)?
+	 * Geen toewijsbaar pad → behandel als ruis (alarmeert niet) zodat losse,
+	 * niet-plaatsbare core-meldingen je niet onder mails bedelven.
+	 */
+	private static function is_own_code_line( $line ) {
+		$path = self::source_file( $line );
+		if ( null === $path ) {
+			return false;
+		}
+		foreach ( self::own_code_paths() as $needle ) {
+			if ( false !== strpos( $path, $needle ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Verkort een absoluut pad tot iets leesbaars voor de mail (vanaf
+	 * wp-content/ of anders de bestandsnaam).
+	 */
+	private static function short_path( $path ) {
+		$pos = strpos( $path, '/wp-content/' );
+		if ( false !== $pos ) {
+			return substr( $path, $pos + 1 ); // zonder leidende slash
+		}
+		$pos = strrpos( $path, '/' );
+		return false !== $pos ? substr( $path, $pos + 1 ) : $path;
 	}
 
 	/**
@@ -280,12 +388,18 @@ class MCM_PHP_Error_Watcher {
 	 * geen herhaling. Bij fatal/parse override anti-spam want die zijn
 	 * altijd dringend.
 	 */
-	private static function maybe_send_mail( array $counts, array $samples, $reason, $post_upgrade, $upgrade ) {
+	private static function maybe_send_mail( array $analysis, $reason, $post_upgrade, $upgrade ) {
 		if ( ! class_exists( 'MCM_Notifier' ) ) {
 			return;
 		}
 
-		$hash = md5( $reason . '|' . wp_json_encode( $counts ) );
+		$counts = $analysis['total'];
+		$own    = $analysis['own'];
+
+		// Anti-spam-hash op de RELEVANTE tellingen (fatal/parse + eigen-code
+		// warning/deprecated), niet op het totaal — anders zou oplopende
+		// core-ruis steeds een nieuwe hash maken en alsnog herhaald mailen.
+		$hash = md5( $reason . '|' . $counts['fatal'] . '|' . $counts['parse'] . '|' . $own['warning'] . '|' . $own['deprecated'] );
 		$last = (string) get_option( self::OPTION_LAST_MAIL_HASH, '' );
 
 		// Voor fatal/parse: altijd doormailen. Anders: skippen als zelfde
@@ -294,37 +408,62 @@ class MCM_PHP_Error_Watcher {
 			return;
 		}
 
-		$subject = self::subject_for( $reason, $counts, $post_upgrade );
-		$body    = self::body_for( $counts, $samples, $reason, $post_upgrade, $upgrade );
+		$subject = self::subject_for( $reason, $counts, $own, $post_upgrade );
+		$body    = self::body_for( $analysis, $reason, $post_upgrade, $upgrade );
 
 		MCM_Notifier::email( $subject, $body );
 		update_option( self::OPTION_LAST_MAIL_HASH, $hash );
 	}
 
-	private static function subject_for( $reason, $counts, $post_upgrade ) {
+	private static function subject_for( $reason, $counts, $own, $post_upgrade ) {
 		if ( 'fatal_or_parse' === $reason ) {
 			$n = $counts['fatal'] + $counts['parse'];
 			return sprintf( 'PHP FATAL errors gedetecteerd (%d)', $n );
 		}
-		$n = $counts['warning'] + $counts['deprecated'];
+		// Drempel-mail draait om de EIGEN-code-tellingen.
+		$n = $own['warning'] + $own['deprecated'];
 		return $post_upgrade
-			? sprintf( 'Stijging PHP-warnings/deprecaties na PHP-upgrade (%d)', $n )
-			: sprintf( 'Stijging PHP-warnings/deprecaties boven drempel (%d)', $n );
+			? sprintf( 'PHP-warnings/deprecaties uit eigen code na PHP-upgrade (%d)', $n )
+			: sprintf( 'PHP-warnings/deprecaties uit eigen code boven drempel (%d)', $n );
 	}
 
-	private static function body_for( $counts, $samples, $reason, $post_upgrade, $upgrade ) {
+	private static function body_for( $analysis, $reason, $post_upgrade, $upgrade ) {
+		$counts  = $analysis['total'];
+		$own     = $analysis['own'];
+		$samples = $analysis['samples'];
+		$noise   = $analysis['noise'];
+
 		$lines  = [];
 		$lines[] = 'Op deze site zijn relevante PHP-foutmeldingen binnengekomen in';
 		$lines[] = 'wp-content/debug.log sinds de vorige check.';
 		$lines[] = '';
 
-		$lines[] = 'Tellingen sinds vorige check:';
+		$lines[] = 'Tellingen sinds vorige check (totaal in de log):';
 		$lines[] = sprintf( '  Fatal:        %d', $counts['fatal'] );
 		$lines[] = sprintf( '  Parse error:  %d', $counts['parse'] );
 		$lines[] = sprintf( '  Warning:      %d', $counts['warning'] );
 		$lines[] = sprintf( '  Deprecated:   %d', $counts['deprecated'] );
 		$lines[] = sprintf( '  Notice (info): %d', $counts['notice'] );
 		$lines[] = '';
+
+		$lines[] = 'Waarvan uit JOUW EIGEN code (plugins/thema\'s/mu-plugins) —';
+		$lines[] = 'dit is wat meetelt voor de drempel en waar je iets aan kunt doen:';
+		$lines[] = sprintf( '  Warning:      %d', $own['warning'] );
+		$lines[] = sprintf( '  Deprecated:   %d', $own['deprecated'] );
+		$lines[] = '';
+
+		if ( ! empty( $noise ) ) {
+			$noise_total = array_sum( $noise );
+			$lines[] = sprintf( 'Genegeerd als core/server-ruis (%d, geen actie nodig). Grootste bronnen:', $noise_total );
+			$shown = 0;
+			foreach ( $noise as $src => $cnt ) {
+				$lines[] = sprintf( '  - %s (%d×)', $src, $cnt );
+				if ( ++$shown >= 5 ) {
+					break;
+				}
+			}
+			$lines[] = '';
+		}
 
 		if ( $upgrade && ! empty( $upgrade['detected'] ) ) {
 			$lines[] = sprintf( 'Recent gedetecteerde PHP-versie-wijziging: %s -> %s.', (string) $upgrade['from'], (string) $upgrade['to'] );
