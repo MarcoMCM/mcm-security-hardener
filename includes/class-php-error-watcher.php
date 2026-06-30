@@ -38,6 +38,13 @@
  *   - 'mcm_php_error_watcher_own_paths' (array van pad-fragmenten) — bepaalt
  *     wat als "eigen code" geldt voor de drempel. Default: wp-content/
  *     plugins|themes|mu-plugins.
+ *   - 'mcm_php_error_watcher_ignore' (array van tekstfragmenten) — demp een
+ *     bekende, geaccepteerde eigen-code-melding volledig (bv. 'wp-migrate-db-pro').
+ *
+ * Tegen volume-ruis telt de drempel UNIEKE problemen (genormaliseerde
+ * signatuur), niet hoe vaak dezelfde melding herhaald is. De anti-spam-hash
+ * zit op de SET signaturen: een herhaalde flood blijft stil, een nieuw soort
+ * probleem alarmeert wél.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -167,10 +174,14 @@ class MCM_PHP_Error_Watcher {
 		// (wp-content/plugins|themes|mu-plugins) tellen mee voor de drempel.
 		// Core (wp-includes, wp-login.php) en systeem (/etc/...) zijn ruis
 		// waar je toch niets aan kunt doen — die blijven wel in de log staan.
+		// Drempel telt UNIEKE eigen-code-problemen, niet rauwe herhalingen —
+		// 14.000 keer dezelfde deprecatie = 1 issue, niet 14.000.
+		$own_unique = $analysis['own_unique']['warning'] + $analysis['own_unique']['deprecated'];
+
 		if ( $counts['fatal'] > 0 || $counts['parse'] > 0 ) {
 			$should_mail = true;
 			$reason      = 'fatal_or_parse';
-		} elseif ( ( $own['warning'] + $own['deprecated'] ) > $threshold ) {
+		} elseif ( $own_unique > $threshold ) {
 			$should_mail = true;
 			$reason      = $post_upgrade ? 'threshold_exceeded_post_upgrade' : 'threshold_exceeded';
 		}
@@ -184,6 +195,8 @@ class MCM_PHP_Error_Watcher {
 			'read'         => $read,
 			'counts'       => $counts,
 			'own'          => $own,
+			'own_unique'   => $analysis['own_unique'],
+			'ignored'      => $analysis['ignored'],
 			'threshold'    => $threshold,
 			'post_upgrade' => $post_upgrade,
 			'should_mail'  => $should_mail,
@@ -200,16 +213,22 @@ class MCM_PHP_Error_Watcher {
 	 * @return array{
 	 *   total:array{fatal:int,parse:int,warning:int,deprecated:int,notice:int},
 	 *   own:array{warning:int,deprecated:int},
+	 *   own_unique:array{warning:int,deprecated:int},
+	 *   signatures:string[],
+	 *   ignored:int,
 	 *   samples:array<string,string[]>,
 	 *   noise:array<string,int>
 	 * }
 	 */
 	private static function analyze( $chunk ) {
 		$total   = [ 'fatal' => 0, 'parse' => 0, 'warning' => 0, 'deprecated' => 0, 'notice' => 0 ];
-		$own     = [ 'warning' => 0, 'deprecated' => 0 ];
+		$own     = [ 'warning' => 0, 'deprecated' => 0 ]; // rauwe aantallen (weergave)
+		$own_sig = [ 'warning' => [], 'deprecated' => [] ]; // distinct signaturen
 		$samples = [ 'fatal' => [], 'parse' => [], 'deprecated' => [], 'warning' => [] ];
 		$noise   = []; // bronbestand => aantal (alleen core/systeem warning+deprecated)
+		$ignored = 0;  // eigen-code-regels die via filter bewust gedempt zijn
 		$seen    = [];
+		$ignore  = self::ignore_patterns();
 
 		foreach ( preg_split( '/\R/', $chunk ) as $line ) {
 			$line = trim( $line );
@@ -231,7 +250,13 @@ class MCM_PHP_Error_Watcher {
 
 			if ( 'warning' === $type || 'deprecated' === $type ) {
 				if ( $is_own ) {
+					// Bewust gedempte bron (filter)? Apart tellen, geen signaal.
+					if ( self::is_ignored( $line, $ignore ) ) {
+						$ignored++;
+						continue;
+					}
 					$own[ $type ]++;
+					$own_sig[ $type ][ self::signature( $line ) ] = true;
 				} else {
 					$src = self::source_file( $line );
 					$key = $src ? self::short_path( $src ) : '(onbekende bron)';
@@ -240,10 +265,10 @@ class MCM_PHP_Error_Watcher {
 			}
 
 			// Voorbeelden: fatal/parse altijd; warning/deprecated alleen uit
-			// eigen code (de ruis hoeft hij niet als "voorbeeld" te zien).
+			// eigen code. Dedupe op signatuur zodat één issue niet 5× verschijnt.
 			$want_sample = ( 'fatal' === $type || 'parse' === $type ) ? true : $is_own;
 			if ( $want_sample && isset( $samples[ $type ] ) ) {
-				$sig = substr( $line, 0, 120 );
+				$sig = self::signature( $line );
 				if ( ! isset( $seen[ $sig ] ) ) {
 					$seen[ $sig ] = true;
 					if ( count( $samples[ $type ] ) < 5 ) {
@@ -254,11 +279,24 @@ class MCM_PHP_Error_Watcher {
 		}
 
 		arsort( $noise );
+
+		// Alle distinct eigen-code-signaturen (gesorteerd) voor een STABIELE
+		// anti-spam-hash: zolang de set ongewijzigd is geen herhaling, een
+		// nieuw soort probleem alarmeert wél.
+		$signatures = array_keys( $own_sig['warning'] + $own_sig['deprecated'] );
+		sort( $signatures );
+
 		return [
-			'total'   => $total,
-			'own'     => $own,
-			'samples' => $samples,
-			'noise'   => $noise,
+			'total'      => $total,
+			'own'        => $own,
+			'own_unique' => [
+				'warning'    => count( $own_sig['warning'] ),
+				'deprecated' => count( $own_sig['deprecated'] ),
+			],
+			'signatures' => $signatures,
+			'ignored'    => $ignored,
+			'samples'    => $samples,
+			'noise'      => $noise,
 		];
 	}
 
@@ -346,6 +384,58 @@ class MCM_PHP_Error_Watcher {
 	}
 
 	/**
+	 * Normaliseer een log-regel tot een herkenbaar "issue": timestamp eraf en
+	 * het absolute pad teruggebracht tot wp-content-relatief. Zo is hetzelfde
+	 * probleem op elke site dezelfde tekst (en dus dezelfde signatuur).
+	 */
+	private static function normalize( $line ) {
+		$s = preg_replace( '/^\[[^\]]*\]\s*/', '', $line );
+		$s = preg_replace_callback( '#in (/\S+\.php)#i', function ( $m ) {
+			return 'in ' . self::short_path( $m[1] );
+		}, (string) $s );
+		return trim( (string) $s );
+	}
+
+	/**
+	 * MD5-signatuur van een genormaliseerde regel — identiteit van één issue.
+	 */
+	private static function signature( $line ) {
+		return md5( self::normalize( $line ) );
+	}
+
+	/**
+	 * Tekstfragmenten waarmee je een bekende, geaccepteerde eigen-code-melding
+	 * volledig kunt dempen (per site, zonder code te wijzigen). Gematcht tegen
+	 * de genormaliseerde regel, case-insensitive. Bv.:
+	 *
+	 *   add_filter( 'mcm_php_error_watcher_ignore', function ( $p ) {
+	 *       $p[] = 'wp-migrate-db-pro'; // demp deprecaties uit deze plugin
+	 *       return $p;
+	 *   } );
+	 *
+	 * @return string[]
+	 */
+	private static function ignore_patterns() {
+		return (array) apply_filters( 'mcm_php_error_watcher_ignore', [] );
+	}
+
+	/**
+	 * Matcht een regel tegen de ignore-patronen.
+	 */
+	private static function is_ignored( $line, array $patterns ) {
+		if ( empty( $patterns ) ) {
+			return false;
+		}
+		$norm = self::normalize( $line );
+		foreach ( $patterns as $needle ) {
+			if ( '' !== (string) $needle && false !== stripos( $norm, (string) $needle ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Detecteert PHP-upgrade door PHP_VERSION te vergelijken met opgeslagen
 	 * vorige versie. Bij verschil: sla nieuwe versie + timestamp op.
 	 *
@@ -394,12 +484,11 @@ class MCM_PHP_Error_Watcher {
 		}
 
 		$counts = $analysis['total'];
-		$own    = $analysis['own'];
 
-		// Anti-spam-hash op de RELEVANTE tellingen (fatal/parse + eigen-code
-		// warning/deprecated), niet op het totaal — anders zou oplopende
-		// core-ruis steeds een nieuwe hash maken en alsnog herhaald mailen.
-		$hash = md5( $reason . '|' . $counts['fatal'] . '|' . $counts['parse'] . '|' . $own['warning'] . '|' . $own['deprecated'] );
+		// Anti-spam-hash op de SET unieke eigen-code-signaturen (niet op
+		// oplopende tellers) + fatal/parse. Zelfde set issues = geen herhaling;
+		// een NIEUW soort probleem verandert de set en alarmeert wél.
+		$hash = md5( $reason . '|' . $counts['fatal'] . '|' . $counts['parse'] . '|' . implode( ',', $analysis['signatures'] ) );
 		$last = (string) get_option( self::OPTION_LAST_MAIL_HASH, '' );
 
 		// Voor fatal/parse: altijd doormailen. Anders: skippen als zelfde
@@ -408,28 +497,29 @@ class MCM_PHP_Error_Watcher {
 			return;
 		}
 
-		$subject = self::subject_for( $reason, $counts, $own, $post_upgrade );
+		$subject = self::subject_for( $reason, $counts, $analysis['own_unique'], $post_upgrade );
 		$body    = self::body_for( $analysis, $reason, $post_upgrade, $upgrade );
 
 		MCM_Notifier::email( $subject, $body );
 		update_option( self::OPTION_LAST_MAIL_HASH, $hash );
 	}
 
-	private static function subject_for( $reason, $counts, $own, $post_upgrade ) {
+	private static function subject_for( $reason, $counts, $unique, $post_upgrade ) {
 		if ( 'fatal_or_parse' === $reason ) {
 			$n = $counts['fatal'] + $counts['parse'];
 			return sprintf( 'PHP FATAL errors gedetecteerd (%d)', $n );
 		}
-		// Drempel-mail draait om de EIGEN-code-tellingen.
-		$n = $own['warning'] + $own['deprecated'];
+		// Drempel-mail draait om het aantal UNIEKE eigen-code-problemen.
+		$n = $unique['warning'] + $unique['deprecated'];
 		return $post_upgrade
-			? sprintf( 'PHP-warnings/deprecaties uit eigen code na PHP-upgrade (%d)', $n )
-			: sprintf( 'PHP-warnings/deprecaties uit eigen code boven drempel (%d)', $n );
+			? sprintf( 'Nieuwe PHP-warnings/deprecaties uit eigen code na PHP-upgrade (%d uniek)', $n )
+			: sprintf( 'Nieuwe PHP-warnings/deprecaties uit eigen code boven drempel (%d uniek)', $n );
 	}
 
 	private static function body_for( $analysis, $reason, $post_upgrade, $upgrade ) {
 		$counts  = $analysis['total'];
 		$own     = $analysis['own'];
+		$unique  = $analysis['own_unique'];
 		$samples = $analysis['samples'];
 		$noise   = $analysis['noise'];
 
@@ -447,9 +537,13 @@ class MCM_PHP_Error_Watcher {
 		$lines[] = '';
 
 		$lines[] = 'Waarvan uit JOUW EIGEN code (plugins/thema\'s/mu-plugins) —';
-		$lines[] = 'dit is wat meetelt voor de drempel en waar je iets aan kunt doen:';
-		$lines[] = sprintf( '  Warning:      %d', $own['warning'] );
-		$lines[] = sprintf( '  Deprecated:   %d', $own['deprecated'] );
+		$lines[] = 'dit is wat meetelt en waar je iets aan kunt doen. We tellen';
+		$lines[] = 'UNIEKE problemen, niet hoe vaak ze herhaald zijn:';
+		$lines[] = sprintf( '  Warning:     %d uniek (%d keer in totaal)', $unique['warning'], $own['warning'] );
+		$lines[] = sprintf( '  Deprecated:  %d uniek (%d keer in totaal)', $unique['deprecated'], $own['deprecated'] );
+		if ( ! empty( $analysis['ignored'] ) ) {
+			$lines[] = sprintf( '  (%d eigen-code-regels bewust gedempt via filter)', $analysis['ignored'] );
+		}
 		$lines[] = '';
 
 		if ( ! empty( $noise ) ) {

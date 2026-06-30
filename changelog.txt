@@ -1,5 +1,21 @@
 MCM Security Hardener — Changelog
 
+= 1.19.0 (2026-06-30) =
+* Verbeterd: PHP Error Watcher telt nu UNIEKE problemen i.p.v. rauwe regels
+  - Een flood van dezelfde melding (bv. 14.000× dezelfde plugin-deprecatie
+    tijdens een PHP-upgrade) telt als het werkelijke aantal unieke issues,
+    niet als duizenden — voorkomt vals alarm op volume
+  - Drempel vergelijkt het aantal unieke eigen-code-problemen
+  - Anti-spam-hash zit nu op de SET unieke signaturen: een herhaalde flood
+    blijft stil, een NIEUW soort probleem (of fatal/parse) alarmeert wél
+  - Signaturen zijn host-onafhankelijk genormaliseerd (pad → wp-content-
+    relatief, timestamp eraf)
+* Nieuw: filter mcm_php_error_watcher_ignore — demp per site een bekende,
+  geaccepteerde eigen-code-melding volledig (bv. 'wp-migrate-db-pro') zonder
+  code te wijzigen
+* Mail toont nu "X uniek (Y keer in totaal)" + grootste ruisbronnen, zodat
+  een hoog totaal meteen te plaatsen is
+
 = 1.18.0 (2026-06-26) =
 * Nieuw: Anomaly Scanner (MCM_Anomaly_Scanner) — vreemde bestanden/mappen
 * Wekelijkse wp-cron + handmatige "Nu scannen"-knop in admin
