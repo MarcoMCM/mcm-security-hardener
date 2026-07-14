@@ -13,6 +13,17 @@ class MCM_Login_URL_Manager {
 
 	public function __construct() {
 		$settings          = get_option( 'mcm_security_settings', [] );
+
+		// No-index op de login-pagina — LOS van de custom-slug-feature, want
+		// ook een standaard wp-login.php (of een custom slug) hoort niet in
+		// Google. Aanleiding: een geïndexeerde login-slug dook op in de
+		// zoekresultaten. Zowel de HTTP-header (robuust, crawlers lezen 'm
+		// altijd) als een meta-tag (dubbele zekerheid) worden gezet.
+		if ( self::noindex_enabled( $settings ) ) {
+			add_action( 'login_init', [ $this, 'send_login_noindex_header' ] );
+			add_action( 'login_head', [ $this, 'print_login_noindex_meta' ] );
+		}
+
 		$this->custom_slug = ! empty( $settings['login_slug'] ) ? sanitize_title( $settings['login_slug'] ) : '';
 
 		if ( empty( $this->custom_slug ) || ! empty( $settings['hide_login_disabled'] ) ) {
@@ -31,6 +42,41 @@ class MCM_Login_URL_Manager {
 		add_filter( 'lostpassword_url', [ $this, 'filter_lostpassword_url' ], 10, 2 );
 		add_filter( 'site_url', [ $this, 'filter_site_url' ], 10, 4 );
 		add_filter( 'wp_redirect', [ $this, 'filter_redirect' ], 10, 2 );
+	}
+
+	/**
+	 * Is de login-no-index-feature ingeschakeld? Met backward-compat fallback
+	 * op de plugin-default zodat het ook aan staat vóór een handmatige save.
+	 */
+	private static function noindex_enabled( $settings ) {
+		if ( ! array_key_exists( 'noindex_login', $settings ) ) {
+			$defaults = method_exists( 'MCM_Security_Hardener', 'get_defaults' )
+				? MCM_Security_Hardener::get_defaults()
+				: [];
+			return ! empty( $defaults['noindex_login'] );
+		}
+		return ! empty( $settings['noindex_login'] );
+	}
+
+	/**
+	 * Stuur de X-Robots-Tag no-index-header op de login-pagina. Fired op
+	 * 'login_init' — vóór output, dus header() is nog toegestaan. Werkt ook
+	 * voor de custom slug, omdat die intern wp-login.php laadt (dat 'login_init'
+	 * afvuurt). wp-login.php stuurt zelf al nocache_headers(), dus de header
+	 * wordt niet door caching gestript.
+	 */
+	public function send_login_noindex_header() {
+		if ( ! headers_sent() ) {
+			header( 'X-Robots-Tag: noindex, nofollow', true );
+		}
+	}
+
+	/**
+	 * Meta-robots no-index in de <head> van de login-pagina — dubbele
+	 * zekerheid naast de HTTP-header (bv. als een proxy de header strip).
+	 */
+	public function print_login_noindex_meta() {
+		echo '<meta name="robots" content="noindex,nofollow" />' . "\n";
 	}
 
 	/**

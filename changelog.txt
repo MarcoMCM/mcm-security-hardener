@@ -1,5 +1,18 @@
 MCM Security Hardener — Changelog
 
+= 1.20.0 (2026-06-30) =
+* Nieuw: login-pagina uit Google houden (no-index)
+  - Stuurt op de login-pagina een X-Robots-Tag: noindex, nofollow-header +
+    meta-robots-tag, zodat zoekmachines 'm niet indexeren
+  - Werkt op de custom login-slug ÉN op standaard wp-login.php (los van of
+    er een slug is ingesteld) — via login_init/login_head, dus ook zonder
+    de custom-URL-feature actief
+  - Toggle 'noindex_login' in de sectie "Login URL Verbergen", default aan;
+    in alle profielen aan
+  - Aanleiding: een geïndexeerde login-slug dook op in de zoekresultaten.
+    Let op: al geïndexeerde URLs verdwijnen pas bij de volgende crawl —
+    voor directe verwijdering gebruik je de Removals-tool in Search Console
+
 = 1.19.0 (2026-06-30) =
 * Verbeterd: PHP Error Watcher telt nu UNIEKE problemen i.p.v. rauwe regels
   - Een flood van dezelfde melding (bv. 14.000× dezelfde plugin-deprecatie

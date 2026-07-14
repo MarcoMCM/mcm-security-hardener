@@ -55,6 +55,8 @@ class MCM_Profiles {
 			'block_fake_seo_bots'       => true,
 			'block_ai_bots'             => true,
 			'block_bad_referers'        => true,
+			// login-pagina uit Google houden
+			'noindex_login'             => true,
 			// human verification
 			'human_verification'        => true,
 			// registratiebescherming (anti-bot bij registratie)
@@ -201,6 +203,8 @@ class MCM_Profiles {
 			'block_php_easter_eggs', 'block_script_concat', 'block_xmlrpc',
 			'block_debug_log', 'block_log_txt_files', 'block_php_in_uploads',
 			'block_wp_includes_php',
+			// login-pagina no-index
+			'noindex_login',
 			// human verification
 			'human_verification',
 			// registratiebescherming

@@ -521,6 +521,8 @@ class MCM_Admin_Page {
 			'block_php_easter_eggs', 'block_script_concat', 'block_xmlrpc',
 			'block_debug_log', 'block_log_txt_files', 'block_php_in_uploads',
 			'block_wp_includes_php',
+			// login-pagina no-index
+			'noindex_login',
 			// human verification
 			'human_verification',
 			// registratiebescherming
@@ -1188,6 +1190,14 @@ class MCM_Admin_Page {
 						<?php endif; ?>
 					</td>
 				</tr>
+				<?php
+				$this->render_toggle(
+					'noindex_login',
+					'Login-pagina uit Google houden (no-index)',
+					'Stuurt op de login-pagina (custom slug én wp-login.php) een <code>X-Robots-Tag: noindex, nofollow</code>-header + meta-tag, zodat zoekmachines de pagina niet indexeren. Werkt ook zonder custom slug. Sterk aanbevolen om aan te laten.',
+					$settings
+				);
+				?>
 			</table>
 		</div>
 		<?php
