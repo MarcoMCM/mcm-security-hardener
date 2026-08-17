@@ -304,6 +304,31 @@ HTACCESS;
 HTACCESS;
 		}
 
+		// 14. Blokkeer directe download van archieven/dumps in uploads.
+		// Preventieve tegenhanger van niveau 2 van de exposure-scanner: die
+		// vindt zips die er al staan, dit blokkeert ook de zip die er morgen
+		// wordt neergezet. Aanleiding: twee publiek downloadbare premium
+		// plugin-zips in uploads/2023/01/ op susenso.nl (Xel-scan 2026-08-17).
+		//
+		// Twee uitzonderingen, anders breken legitieme downloads:
+		//   - woocommerce_uploads      : downloadbare producten (Woo serveert
+		//                                die zelf, soms via redirect naar de
+		//                                directe URL)
+		//   - wp-personal-data-exports : AVG-exports die WordPress als zip
+		//                                naar de gebruiker mailt
+		if ( ! empty( $s['block_archives_in_uploads'] ) ) {
+			$rules .= <<<'HTACCESS'
+# Block direct download of archives/dumps in uploads
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !^/wp-content/uploads/woocommerce_uploads/ [NC]
+    RewriteCond %{REQUEST_URI} !^/wp-content/uploads/wp-personal-data-exports/ [NC]
+    RewriteRule ^wp-content/uploads/.*\.(zip|rar|7z|tar|tgz|gz|bz2|sql|bak|old|sav)$ - [F,L,NC]
+</IfModule>
+
+HTACCESS;
+		}
+
 		return $rules;
 	}
 

@@ -19,6 +19,8 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | **Human Verification** | CSS-checkbox die zichzelf aanvinkt; blokkeert bots die direct submitten — werkt op login, register, lost-password én op WooCommerce my-account |
 | **Registratiebescherming** | Honeypot-veld + wegwerpdomein-filter op registratieformulieren (WP + WooCommerce) |
 | **HTTP Basic Auth voor staging** | Een laag wachtwoord vóór de hele site, alleen actief op staging-omgevingen |
+| **Gebruikersnamen afschermen** | Zet de vier routes dicht waarlangs WordPress logins weggeeft (`?author=1`, REST `/wp/v2/users`, oEmbed, users-sitemap) + een generieke loginfout, zodat een mislukte login niet verklapt of de gebruikersnaam bestaat. Auteursarchieven blijven werken |
+| **Archieven in uploads blokkeren** | Optionele `.htaccess`-regel: 403 op directe download van zip/rar/7z/tar.gz/sql/bak uit `/uploads/`, met uitzondering van `woocommerce_uploads` en AVG-exports |
 | **Database prefix-migratie** | Detecteert default `wp_` + biedt veilige random-prefix-migratie incl. SQL-backup en rollback |
 
 ### 🔎 Detecteren & rapporteren
@@ -26,11 +28,12 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | Feature | Wat |
 |---|---|
 | **WP_DEBUG productie-watchdog** | Detecteert `WP_DEBUG=true` op productie-omgevingen → admin-notice + 1×/24u mail naar de eigenaar |
-| **File Exposure Scanner** | Wekelijkse filesystem-scan naar blootgestelde gevoelige bestanden (info.php/phpinfo(), `.env`, wp-config-backups, SQL-dumps, Adminer, phpMyAdmin) → mail bij nieuwe bevindingen, detectie-only |
+| **File Exposure Scanner** | Wekelijkse filesystem-scan op drie niveaus: **webroot** (info.php/phpinfo(), `.env`, wp-config-backups, SQL-dumps, Adminer, phpMyAdmin), **uploads recursief** (archieven en dumps — vindt de vergeten plugin-zip in `uploads/2023/01/`) en **boven de webroot** (achtergelaten `.bak`/`.tar.gz`/scripts). Herkent een deny-`.htaccess` als afscherming, dus een correct afgeschermde backup-map is geen lek. Severity-tiers, mail alleen bij HIGH/MEDIUM, detectie-only |
 | **Anomaly Scanner** | Wekelijkse scan van root + `wp-content` (top-level) op onbekende bestanden/mappen via whitelist; severity-tiers (HIGH = los `.php`/shell, MEDIUM = onbekende root-map, LOW = info). Mailt alleen bij HIGH/MEDIUM, detectie-only |
 | **PHP Error Watcher** | Uurlijkse monitor van `debug.log`; mailt direct bij fatal/parse. Warning/deprecated tellen alleen mee voor de drempel als ze uit eigen code komen (core/systeem = ruis, alarmeert niet). Extra gevoelig 7 dagen na een PHP-versie-wissel |
 | **Toolbar-snelkoppeling** | "MCM Security" in de WP-adminbar (front + admin, alleen admins); kleurt rood als de anomalie-scan uit staat, met 1-klik aan/uit-toggle |
 | **User Audit** | Lijst van alle users met rol Administrator/Editor/Author/Contributor met 1-klik downgrade naar de MCM Klant-rol (mits Site Optimizer aanwezig) of naar Subscriber |
+| **Risico op gebruikersnamen** | Vlagt voorspelbare logins (`admin`, `test`, de domeinnaam van de site, …) en profielen waarvan de weergavenaam gelijk is aan de login — die staat anders onder elke post. Weergavenaam met 1 klik los te maken; hernoemen doet de plugin bewust niet |
 | **WP major-update compat-check** | Bij een aankomende major WP-update: vergelijkt de "Tested up to" van alle actieve plugins en toont per plugin Compatibel / Niet getest / Onbekend |
 | **Notifier** | Alle plugin-mails en admin-notices gaan naar het centrale notificatie-adres (default `marco@mcmwebsites.nl`), niet naar de klant |
 
@@ -92,6 +95,9 @@ define( 'MCM_SECURITY_DISABLE_DEBUG_WATCHDOG', true );
 | `mcm_security_debug_watchdog_enabled` | WP_DEBUG-watchdog uitschakelen |
 | `mcm_anomaly_root_whitelist` | Bekende root-items voor de anomalie-scan (lowercase namen) |
 | `mcm_anomaly_wpcontent_whitelist` | Bekende `wp-content`-items voor de anomalie-scan |
+| `mcm_exposure_archive_regex` | Welke extensies gelden als archief/dump in de uploads- en boven-webroot-scan |
+| `mcm_exposure_uploads_skip_dirs` | Mapnamen die de uploads-scan overslaat (default: `woocommerce_uploads` + cache-mappen) |
+| `mcm_security_risky_login_names` | Gebruikersnamen die als voorspelbaar gelden (default: `admin` & co + de domeinnaam) |
 | `mcm_php_error_watcher_own_paths` | Pad-fragmenten die als "eigen code" gelden voor de error-drempel |
 | `mcm_php_error_watcher_max_read_bytes` | Max bytes per check uit `debug.log` (default 1 MiB) |
 
@@ -123,7 +129,8 @@ mcm-security-hardener/
 │   ├── class-user-audit.php           Users met verhoogde rechten
 │   ├── class-update-compat-check.php  WP-update plugin-compat tabel
 │   ├── class-backend-access.php       Skip email-confirm + non-admin backend-block
-│   ├── class-file-exposure-scanner.php  Scan op blootgestelde gevoelige bestanden
+│   ├── class-file-exposure-scanner.php  Scan op blootgestelde bestanden (webroot + uploads + boven webroot)
+│   ├── class-user-enumeration.php       Gebruikersnamen afschermen (author/REST/oEmbed/sitemap/loginfout)
 │   ├── class-anomaly-scanner.php      Scan op vreemde bestanden/mappen (whitelist)
 │   ├── class-admin-bar.php            Toolbar-snelkoppeling + scan aan/uit-toggle
 │   ├── class-php-error-watcher.php    debug.log-monitor met herkomst-filtering

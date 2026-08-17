@@ -64,8 +64,18 @@ class MCM_Profiles {
 			'block_disposable_email'    => true,
 			// backend toegang
 			'skip_admin_email_confirmation' => true,
-			// file exposure scanner
+			// file exposure scanner (detectie op alle drie de niveaus; het
+			// .htaccess-blokkeren zit alleen in Strict)
 			'exposure_scanner_enabled'      => true,
+			'exposure_scan_uploads'         => true,
+			'exposure_scan_above_root'      => true,
+			// gebruikersnaam-enumeratie dichtzetten — geen impact op API's of
+			// integraties, dus veilig voor elke site
+			'block_author_enumeration'      => true,
+			'restrict_rest_users'           => true,
+			'hide_authors_in_oembed'        => true,
+			'remove_users_sitemap'          => true,
+			'generic_login_errors'          => true,
 			// anomaly scanner (vreemde bestanden/mappen)
 			'anomaly_scanner_enabled'       => true,
 			// php error watcher
@@ -89,6 +99,10 @@ class MCM_Profiles {
 			'block_bad_url_content'           => true,
 			'block_non_admin_backend'         => true,
 			'block_risky_files_via_htaccess'  => true,
+			// 403 op archieven in uploads. In Strict omdat het een legitieme
+			// zip-download uit de mediabibliotheek breekt — op een brochure-site
+			// geen probleem, op een site die downloads aanbiedt wel.
+			'block_archives_in_uploads'       => true,
 		];
 
 		// Staging — alleen "stille" bescherming. Lockdown/file_mods uit
@@ -213,6 +227,12 @@ class MCM_Profiles {
 			'skip_admin_email_confirmation', 'block_non_admin_backend',
 			// file exposure scanner
 			'exposure_scanner_enabled', 'block_risky_files_via_htaccess',
+			'exposure_scan_uploads', 'exposure_scan_above_root',
+			'block_archives_in_uploads',
+			// gebruikersnaam-enumeratie
+			'block_author_enumeration', 'restrict_rest_users',
+			'hide_authors_in_oembed', 'remove_users_sitemap',
+			'generic_login_errors',
 			// anomaly scanner
 			'anomaly_scanner_enabled',
 			// php error watcher

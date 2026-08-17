@@ -531,6 +531,12 @@ class MCM_Admin_Page {
 			'skip_admin_email_confirmation', 'block_non_admin_backend',
 			// file exposure scanner
 			'exposure_scanner_enabled', 'block_risky_files_via_htaccess',
+			'exposure_scan_uploads', 'exposure_scan_above_root',
+			'block_archives_in_uploads',
+			// gebruikersnaam-enumeratie
+			'block_author_enumeration', 'restrict_rest_users',
+			'hide_authors_in_oembed', 'remove_users_sitemap',
+			'generic_login_errors',
 			// anomaly scanner
 			'anomaly_scanner_enabled',
 			// php error watcher
@@ -629,6 +635,12 @@ class MCM_Admin_Page {
 		$config_active   = MCM_WPConfig_Manager::is_active();
 		$htaccess_active = MCM_Htaccess_Manager::is_active();
 		$status          = isset( $_GET['mcm-status'] ) ? sanitize_key( $_GET['mcm-status'] ) : '';
+		// De scanners en de user-audit redirecten met 'mcm_status' (underscore)
+		// in plaats van 'mcm-status'. Beide accepteren, anders verdwijnt hun
+		// bevestiging stilzwijgend.
+		if ( '' === $status && isset( $_GET['mcm_status'] ) ) {
+			$status = sanitize_key( $_GET['mcm_status'] );
+		}
 		?>
 		<div class="wrap mcm-security-wrap">
 			<h1>MCM Security Hardener <span class="mcm-version">v<?php echo esc_html( MCM_SECURITY_VERSION ); ?></span></h1>
@@ -670,6 +682,8 @@ class MCM_Admin_Page {
 				}
 
 				$this->render_user_audit_section();
+				$this->render_risky_users_section();
+				$this->render_user_enumeration_section( $settings );
 				?>
 
 				<!-- DATABASE PREFIX -->
@@ -731,11 +745,20 @@ class MCM_Admin_Page {
 						Wekelijkse filesystem-scan naar losse "test"-bestanden die per ongeluk publiek bereikbaar zijn (info.php met phpinfo(), .env, wp-config-backups, SQL-dumps, Adminer, phpMyAdmin, etc.). Detecteert ook .php-bestanden die <code>phpinfo()</code> aanroepen.
 					</p>
 					<p class="description">
+						De scan draait op drie niveaus: <strong>webroot</strong> (root + wp-content, bovenste niveau), <strong>uploads</strong> (recursief, op archieven en dumps) en <strong>boven de webroot</strong> (achtergelaten werkbestanden in de map boven de site).
+					</p>
+					<p class="description">
+						<strong>Severity</strong>: <span style="color:#b32d2e;">HIGH</span> = publiek bereikbare dump of een wp-config-kopie, <span style="color:#bd8600;">MEDIUM</span> = publiek bereikbaar archief, <span style="color:#646970;">LOW</span> = afgeschermd of boven de webroot (alleen rommel). Alleen HIGH/MEDIUM sturen een mail.
+					</p>
+					<p class="description">
 						<strong>Geen automatisch verwijderen</strong> &mdash; alleen melden via admin-notice + mail naar de notify-bestemming. Verwijderen blijft een bewuste handeling.
 					</p>
 					<table class="form-table">
 						<?php
 						$this->render_toggle( 'exposure_scanner_enabled', 'Wekelijkse scan inschakelen', 'Plant een wp-cron-job die wekelijks de webroot scant. Bij nieuwe bevindingen krijg je een mail.', $settings );
+						$this->render_toggle( 'exposure_scan_uploads', 'Uploads meescannen (recursief)', 'Zoekt archieven en dumps (zip, rar, 7z, tar.gz, sql, bak) in de hele mediabibliotheek &mdash; precies waar een vergeten plugin-zip of database-dump belandt. Een map met een deny-<code>.htaccess</code> (zoals onze eigen backup-map) telt als afgeschermd en zakt naar LOW. <code>woocommerce_uploads</code> en cache-mappen worden overgeslagen.', $settings );
+						$this->render_toggle( 'exposure_scan_above_root', 'Map boven de webroot meescannen', 'Kijkt &eacute;&eacute;n niveau boven de site (op Xel de home-map van de hostingaccount) naar losse archieven, backups en <code>.php</code>-scripts. Niet publiek bereikbaar, dus LOW &mdash; behalve een wp-config-kopie, die is HIGH omdat er DB-credentials en salts in staan.', $settings );
+						$this->render_toggle( 'block_archives_in_uploads', 'Archieven in uploads blokkeren (.htaccess)', '403 op elke directe download van een archief of dump uit <code>wp-content/uploads</code>, dus ook op een zip die er morgen wordt neergezet. <strong>Let op:</strong> dit breekt een legitieme zip-download uit de mediabibliotheek. <code>woocommerce_uploads</code> (downloadbare producten) en <code>wp-personal-data-exports</code> (AVG-exports) zijn uitgezonderd. Alleen Apache.', $settings );
 						$this->render_toggle( 'block_risky_files_via_htaccess', 'Risico-bestanden ook via .htaccess blokkeren', 'Voegt een Apache FilesMatch-blok toe dat directe HTTP-toegang tot info.php, *.sql, .env, wp-config backups, etc. weigert. Werkt alleen op Apache &mdash; op nginx geen effect.', $settings );
 						?>
 					</table>
@@ -754,12 +777,36 @@ class MCM_Admin_Page {
 								<span style="color:#b32d2e;">&#9888; <?php echo (int) count( $findings ); ?> bevinding(en)</span>
 							<?php endif; ?>
 						</p>
+						<?php
+						$meta = isset( $last['meta'] ) && is_array( $last['meta'] ) ? $last['meta'] : [];
+						if ( ! empty( $meta['uploads_capped'] ) ) :
+							?>
+							<p class="description" style="color:#bd8600;">
+								<strong>&#9888; Uploads-scan afgekapt</strong> na <?php echo (int) $meta['uploads_files_seen']; ?> bestanden
+								<?php echo 'time' === ( isset( $meta['uploads_cap_reason'] ) ? $meta['uploads_cap_reason'] : '' )
+									? '(tijdslimiet van ' . (int) MCM_File_Exposure_Scanner::MAX_UPLOADS_SECONDS . ' sec bereikt)'
+									: '(bestandslimiet van ' . (int) MCM_File_Exposure_Scanner::MAX_UPLOADS_FILES . ' bereikt)'; ?>. De mediabibliotheek is niet
+								volledig doorlopen &mdash; dit resultaat is dus incompleet, g&eacute;&eacute;n vrijbrief.
+							</p>
+							<?php
+						endif;
+						if ( isset( $meta['above_root_readable'] ) && false === $meta['above_root_readable'] ) :
+							?>
+							<p class="description" style="color:#bd8600;">
+								<strong>&#9888; Map boven de webroot niet leesbaar</strong> &mdash; PHP mag daar niet kijken
+								(meestal <code>open_basedir</code>). Dat scan-niveau is dus niet gecontroleerd.
+							</p>
+							<?php
+						endif;
+						?>
 						<?php if ( ! empty( $findings ) ) : ?>
 						<table class="widefat striped" style="margin-top:8px;">
 							<thead>
 								<tr>
+									<th style="width:80px;">Severity</th>
 									<th>Reden</th>
 									<th>Pad (relatief)</th>
+									<th style="width:110px;">Waar</th>
 									<th style="width:90px;">Grootte</th>
 									<th style="width:120px;">Laatst gew.</th>
 									<th style="width:80px;">Publiek?</th>
@@ -768,9 +815,17 @@ class MCM_Admin_Page {
 							<tbody>
 								<?php foreach ( $findings as $f ) : ?>
 								<tr>
+									<td><?php echo $this->severity_badge( isset( $f['severity'] ) ? $f['severity'] : 'high' ); ?></td>
 									<td><?php echo esc_html( $f['reason'] ); ?></td>
 									<td><code><?php echo esc_html( $f['relpath'] ); ?></code></td>
-									<td><?php echo (int) $f['size']; ?></td>
+									<td>
+										<?php
+										$loc_labels = MCM_File_Exposure_Scanner::location_labels();
+										$loc        = isset( $f['location'] ) ? $f['location'] : 'webroot';
+										echo esc_html( isset( $loc_labels[ $loc ] ) ? $loc_labels[ $loc ] : $loc );
+										?>
+									</td>
+									<td><?php echo esc_html( size_format( (int) $f['size'] ) ); ?></td>
 									<td><?php echo $f['mtime'] ? esc_html( wp_date( 'd-m-Y', (int) $f['mtime'] ) ) : '—'; ?></td>
 									<td><?php echo ! empty( $f['public_guess'] ) ? '<span style="color:#b32d2e;">ja</span>' : '<span style="color:#646970;">nee</span>'; ?></td>
 								</tr>
@@ -1382,6 +1437,161 @@ class MCM_Admin_Page {
 		<?php
 	}
 
+	/**
+	 * Risico's op gebruikersnamen: voorspelbare logins ('admin') en
+	 * weergavenamen die de login publiek maken.
+	 */
+	private function render_risky_users_section() {
+		$risky = MCM_User_Audit::get_risky_users();
+		?>
+		<div class="mcm-section">
+			<h2>Risico op gebruikersnamen</h2>
+			<p class="description">
+				Een geldige gebruikersnaam is de helft van een brute-force-aanval. Deze check zoekt naar
+				voorspelbare logins (<code>admin</code>, <code>test</code>, de domeinnaam, &hellip;) bij gebruikers
+				met verhoogde rechten, en naar profielen waarvan de <strong>weergavenaam gelijk is aan de login</strong> &mdash;
+				die staat dan onder elke post en reactie.
+			</p>
+			<p class="description">
+				MCM-eigenaars en super-admins blijven buiten deze lijst.
+				<strong>Hernoemen doet de plugin niet</strong>: WordPress heeft daar geen API voor en een directe
+				database-update op <code>user_login</code> is te riskant. Voor een risico-login is de route:
+				nieuw account aanmaken, content overdragen, oude account verwijderen.
+			</p>
+
+			<?php if ( empty( $risky ) ) : ?>
+				<p style="color:#1e7e34;"><strong>&#10003; Geen risico's gevonden op gebruikersnamen.</strong></p>
+			<?php else : ?>
+				<table class="widefat striped" style="margin-top:8px;">
+					<thead>
+						<tr>
+							<th style="width:80px;">Severity</th>
+							<th>Gebruiker</th>
+							<th>Rol</th>
+							<th>Bevinding</th>
+							<th style="width:220px;">Actie</th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $risky as $entry ) :
+							$user   = $entry['user'];
+							$issues = $entry['issues'];
+							?>
+							<tr>
+								<td><?php echo $this->severity_badge( MCM_User_Audit::worst_severity( $issues ) ); ?></td>
+								<td>
+									<strong><?php echo esc_html( $user->user_login ); ?></strong><br />
+									<span style="color:#646970; font-size:12px;">
+										weergave: <?php echo esc_html( $user->display_name ); ?>
+									</span>
+								</td>
+								<td><?php echo esc_html( MCM_User_Audit::role_labels( $user ) ); ?></td>
+								<td>
+									<?php foreach ( $issues as $issue ) : ?>
+										<p style="margin:0 0 6px;">
+											<strong><?php echo esc_html( $issue['label'] ); ?></strong><br />
+											<span class="description"><?php echo esc_html( $issue['advice'] ); ?></span>
+										</p>
+									<?php endforeach; ?>
+								</td>
+								<td>
+									<?php
+									$fixable = false;
+									foreach ( $issues as $issue ) {
+										if ( ! empty( $issue['fixable'] ) && 'display_login' === $issue['code'] ) {
+											$fixable = true;
+										}
+									}
+									if ( $fixable && current_user_can( 'edit_users' ) ) :
+										$suggestion = MCM_User_Audit::suggest_display_name( $user );
+										$fix_url    = wp_nonce_url(
+											add_query_arg(
+												[
+													'action'  => MCM_User_Audit::ACTION_FIX_DISPLAY,
+													'user_id' => $user->ID,
+												],
+												admin_url( 'admin-post.php' )
+											),
+											MCM_User_Audit::NONCE_FIX_DISPLAY
+										);
+										?>
+										<a href="<?php echo esc_url( $fix_url ); ?>"
+											class="button button-small"
+											onclick="return confirm('Weergavenaam van <?php echo esc_js( $user->user_login ); ?> wijzigen naar \'<?php echo esc_js( $suggestion ); ?>\'?');">
+											Weergavenaam losmaken
+										</a>
+										<p class="description" style="margin-top:4px;">
+											Wordt: <code><?php echo esc_html( $suggestion ); ?></code>
+										</p>
+									<?php else : ?>
+										<em style="color:#646970;">handmatige actie</em>
+									<?php endif; ?>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Gebruikersnaam-enumeratie: de vier routes waarlangs WordPress logins
+	 * weggeeft, plus de loginfout die verklapt of een naam bestaat.
+	 */
+	private function render_user_enumeration_section( $settings ) {
+		?>
+		<div class="mcm-section">
+			<h2>Gebruikersnamen afschermen</h2>
+			<p class="description">
+				WordPress geeft standaard gebruikersnamen weg via <code>?author=1</code>, de REST API, oEmbed en de
+				sitemap &mdash; en na een mislukte login zegt hij of de gebruikersnaam bestond. Daarmee is de helft
+				van een brute-force-aanval al gedaan. Dit blok zet die routes dicht, ongeacht de hosting.
+			</p>
+			<p class="description">
+				<strong>Auteursarchieven blijven werken.</strong> Alleen de enumeratie-vector <code>?author=&lt;id&gt;</code>
+				geeft een 404; een nette <code>/author/&lt;slug&gt;/</code>-URL laten we staan. Ingelogde gebruikers
+				houden toegang tot de REST-userlijst, want de blok-editor heeft die nodig.
+			</p>
+			<table class="form-table">
+				<?php
+				$this->render_toggle( 'block_author_enumeration', '?author=1 geeft een 404', 'Zonder dit stuurt WordPress een redirect naar <code>/author/&lt;login&gt;/</code>. De ID\'s aflopen levert dan alle gebruikersnamen van de site op. Zet dit uit als een thema afhankelijk is van <code>?author=</code>-links.', $settings );
+				$this->render_toggle( 'restrict_rest_users', 'REST-userlijst alleen voor ingelogden', '<code>/wp-json/wp/v2/users</code> is standaard anoniem leesbaar en geeft de complete gebruikerslijst. Deze optie haalt die route weg voor bezoekers zonder login.', $settings );
+				$this->render_toggle( 'hide_authors_in_oembed', 'oEmbed noemt geen auteur', 'Haalt <code>author_name</code> en <code>author_url</code> uit de oEmbed-respons. Titel, thumbnail en iframe blijven intact, dus embeds blijven werken.', $settings );
+				$this->render_toggle( 'remove_users_sitemap', 'Geen auteurs in de sitemap', 'Verwijdert <code>/wp-sitemap-users-1.xml</code> uit de WordPress-sitemap. Heeft geen effect op Yoast/RankMath-sitemaps &mdash; zet auteursarchieven daar in de plugin zelf uit.', $settings );
+				$this->render_toggle( 'generic_login_errors', 'Generieke loginfout', 'Vervangt "onbekende gebruikersnaam" en "wachtwoord onjuist" door &eacute;&eacute;n neutrale melding, zodat een aanvaller geen logins kan verifi&euml;ren. Andere meldingen (cookies, 2FA) blijven ongewijzigd.', $settings );
+				?>
+			</table>
+			<?php
+			$status = MCM_User_Enumeration::status();
+			$open   = array_filter( $status, function ( $row ) {
+				return empty( $row['active'] );
+			} );
+			?>
+			<p style="margin-top:4px;">
+				<?php if ( empty( $open ) ) : ?>
+					<span style="color:#1e7e34;"><strong>&#10003; Alle bekende lek-routes staan dicht.</strong></span>
+				<?php else : ?>
+					<span style="color:#bd8600;">
+						<strong>&#9888; <?php echo (int) count( $open ); ?> van <?php echo (int) count( $status ); ?> routes staat nog open:</strong>
+						<?php
+						$labels = array_map( function ( $row ) {
+							return $row['label'];
+						}, $open );
+						echo esc_html( implode( ', ', $labels ) );
+						?>
+					</span>
+				<?php endif; ?>
+			</p>
+			<p class="description">
+				Let op: de instellingen hierboven werken direct na opslaan (PHP-filters), er hoeft niets naar
+				.htaccess of wp-config geschreven te worden.
+			</p>
+		</div>
+		<?php
+	}
+
 	private function render_basic_auth_section( $settings ) {
 		$is_staging = class_exists( 'MCM_Staging_Detector' ) ? MCM_Staging_Detector::is_staging() : false;
 		$is_active  = MCM_Basic_Auth::is_active();
@@ -1938,6 +2148,24 @@ class MCM_Admin_Page {
 		<?php
 	}
 
+	/**
+	 * HIGH/MEDIUM/LOW-badge in de vaste kleuren van de plugin.
+	 */
+	private function severity_badge( $severity ) {
+		$colors = [
+			'high'   => '#b32d2e',
+			'medium' => '#bd8600',
+			'low'    => '#646970',
+		];
+		$color = isset( $colors[ $severity ] ) ? $colors[ $severity ] : '#646970';
+
+		return sprintf(
+			'<strong style="color:%s;">%s</strong>',
+			esc_attr( $color ),
+			esc_html( strtoupper( $severity ) )
+		);
+	}
+
 	private function render_toggle( $name, $label, $description, $settings ) {
 		$checked = ! empty( $settings[ $name ] ) ? 'checked' : '';
 		?>
@@ -1982,11 +2210,23 @@ class MCM_Admin_Page {
 			'audit_owner_protected' => [ 'warning', 'User audit: MCM-eigenaar wordt niet gedowngrade.' ],
 			'audit_super_protected' => [ 'warning', 'User audit: super-admin (multisite) wordt niet gedowngrade.' ],
 			'audit_no_admin_downgrade' => [ 'error', 'User audit: alleen een administrator mag een administrator downgraden.' ],
+			'audit_display_failed' => [ 'error', 'Weergavenaam kon niet worden aangepast.' ],
 			'exposure_scan_done' => [ 'success', 'File-exposure scan is uitgevoerd. Zie de "Blootgestelde bestanden"-sectie voor het resultaat.' ],
 			'anomaly_scan_done' => [ 'success', 'Anomalie-scan is uitgevoerd. Zie de "Vreemde bestanden &amp; mappen"-sectie voor het resultaat.' ],
 			'anomaly_enabled' => [ 'success', 'Anomalie-scan staat nu AAN.' ],
 			'anomaly_disabled' => [ 'warning', 'Anomalie-scan staat nu UIT. Vergeet niet \'m na je werk weer aan te zetten (rode knop in de toolbar).' ],
 		];
+
+		if ( 'audit_display_fixed' === $status ) {
+			$user  = isset( $_GET['mcm_audit_user'] ) ? sanitize_user( wp_unslash( $_GET['mcm_audit_user'] ) ) : '?';
+			$value = isset( $_GET['mcm_audit_value'] ) ? sanitize_text_field( rawurldecode( wp_unslash( $_GET['mcm_audit_value'] ) ) ) : '?';
+			printf(
+				'<div class="notice notice-success is-dismissible"><p>Weergavenaam van <strong>%s</strong> is losgemaakt van de login en staat nu op <strong>%s</strong>.</p></div>',
+				esc_html( $user ),
+				esc_html( $value )
+			);
+			return;
+		}
 
 		if ( 'audit_downgraded' === $status ) {
 			$user  = isset( $_GET['mcm_audit_user'] ) ? sanitize_user( wp_unslash( $_GET['mcm_audit_user'] ) ) : '?';

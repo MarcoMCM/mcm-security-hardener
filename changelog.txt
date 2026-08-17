@@ -1,5 +1,105 @@
 MCM Security Hardener — Changelog
 
+= 1.21.0 (2026-08-17) =
+Aanleiding: de Xel-beveiligingsscan van sus en so meldde drie dingen die deze
+plugin nog niet zelf vond. Alle drie zitten er nu in, zodat we het voortaan
+zelf detecteren in plaats van het van de host te horen.
+
+* Nieuw: exposure-scanner scant nu op DRIE niveaus i.p.v. één
+  - Niveau 2 — uploads recursief op archieven en dumps (zip, rar, 7z, tar,
+    tgz, gz, bz2, sql, bak, old, sav). Dit is de check die de twee publiek
+    downloadbare premium plugin-zips in uploads/2023/01/ op susenso.nl had
+    gevonden; die stonden er sinds juli 2024. Niveau 1 kon ze per definitie
+    niet zien: uploads werd niet gescand, en een archief matchte alleen als
+    het 'backup*' of 'db*' heette.
+  - Niveau 3 — één niveau boven de webroot (op Xel de home-map van de
+    hostingaccount): losse archieven, backups en .php-scripts van eerder werk.
+    Niet publiek bereikbaar, dus alleen zichtbaar in de admin-tabel.
+  - Per niveau een eigen toggle: 'exposure_scan_uploads' en
+    'exposure_scan_above_root' (beide default aan, ook op sites die van een
+    oudere versie updaten — er is een terugval op de plugin-defaults zodat de
+    nieuwe lagen niet uit blijven staan tot iemand handmatig opslaat).
+* Nieuw: severity-tiers op de exposure-scanner, gelijk aan de anomalie-scanner
+  - HIGH   = publiek bereikbare database-dump, of een wp-config-kopie (die
+             bevat credentials + salts, ook boven de webroot)
+  - MEDIUM = publiek bereikbaar archief
+  - LOW    = afgeschermd archief, of rommel boven de webroot
+  - Mail gaat alleen bij HIGH/MEDIUM; LOW staat alleen in de admin-tabel.
+    Voorkomt een mail over elk .bak-bestand dat je zelf net hebt neergezet.
+* Nieuw: afscherming wordt herkend i.p.v. hardgecodeerd
+  - Per bevinding wordt omhoog gelopen naar een .htaccess met 'Require all
+    denied' / 'Deny from all'. Een correct afgeschermde backup-map (zoals onze
+    eigen mcm-security-backups) is dus géén lek en zakt naar LOW.
+* Nieuw: .htaccess-optie 'block_archives_in_uploads' — 403 op elke directe
+  download van een archief/dump uit uploads, dus ook op een zip die er morgen
+  wordt neergezet. Default UIT (breekt een legitieme zip-download), staat aan
+  in het Strict-profiel. Uitzonderingen: woocommerce_uploads (downloadbare
+  producten) en wp-personal-data-exports (AVG-exports).
+* Nieuw: module Gebruikersnamen afschermen (MCM_User_Enumeration)
+  Xel meldt "gebruikersnamen zijn publiekelijk op te vragen" met als advies
+  "laat onze plugin bijwerken" — dat werkt alleen op Xel. Nu in eigen beheer,
+  vijf losse toggles, alle default aan:
+  - ?author=<id> geeft een 404 i.p.v. een redirect naar /author/<login>/
+    (de ID's aflopen leverde anders alle gebruikersnamen op)
+  - /wp-json/wp/v2/users alleen voor ingelogde gebruikers (de blok-editor
+    heeft die lijst nodig, dus ingelogd blijft open)
+  - author_name/author_url uit de oEmbed-respons
+  - geen /wp-sitemap-users-1.xml
+  - generieke loginfout, zodat "onbekende gebruikersnaam" vs "wachtwoord
+    onjuist" geen logins meer verifieert
+  Auteursarchieven blijven werken: alleen de enumeratie-vector wordt geblokt,
+  een nette /author/<slug>/-URL niet.
+* Nieuw: sectie "Risico op gebruikersnamen" in de user-audit
+  - Vlagt voorspelbare logins (admin, administrator, root, test, beheerder,
+    ... + automatisch de domeinnaam van de site — op susenso.nl is 'susenso'
+    net zo voorspelbaar als 'admin')
+  - Vlagt profielen waarvan de weergavenaam gelijk is aan de login: die staat
+    dan onder elke post en reactie. Met 1-klik los te maken (valt terug op
+    voor-/achternaam, dan bijnaam, dan rolnaam).
+  - Vlagt een auteurs-slug die de login is, maar alleen bij gepubliceerde
+    posts — anders zou het bij élke gebruiker afgaan.
+  - Hernoemen doet de plugin bewust NIET: WordPress heeft er geen API voor en
+    een directe UPDATE op user_login is te riskant. Advies in de UI is: nieuw
+    account, content overdragen, oude verwijderen.
+  - Twee gerichte queries i.p.v. alle users doorlopen, zodat het ook werkt op
+    een webshop met tienduizenden klantaccounts.
+* Fix: bevindingen worden gededupliceerd op PAD i.p.v. type+pad. info.php
+  matchte op naam én op de phpinfo()-inhoud en stond daardoor twee keer in de
+  tabel, met een te hoge telling in de mail. Redenen worden nu samengevoegd,
+  de zwaarste severity wint.
+* Fix: bevestigingen van de scanners en de user-audit werden nooit getoond.
+  Die redirecten met 'mcm_status' (underscore) terwijl de admin-pagina alleen
+  'mcm-status' (streepje) uitlas. Beide worden nu geaccepteerd.
+* Verbeterd: uploads-scan wordt begrensd door TIJD (20 sec), niet door een
+  bestandsteller, en meldt in de admin ALS er is afgekapt — mét de reden. Een
+  afgekapte scan mag niet als "geen bevindingen" worden gelezen.
+  Bij het testen op echte sites bleek een teller onbruikbaar als grens:
+  susenso.nl heeft 293.000 bestanden in uploads (8,9 GB) en liep die in 1,1 sec
+  af. Een cap van 25.000 kapte die scan af na 0,13 sec — ruim binnen de tijd,
+  maar met een stilzwijgend incompleet resultaat. De teller staat nu op
+  1.000.000 als noodrem tegen een symlink-lus, de tijdslimiet doet het werk.
+* Verbeterd: bestandsgroottes leesbaar (size_format) i.p.v. in bytes.
+* Fix (tijdens testen gevonden): de afscherming-check volgde niet hoe Apache
+  werkt. Hij liep omhoog tot hij ergens een deny vond, terwijl Apache de
+  DICHTSTBIJZIJNDE .htaccess toepast — en een map kan een deny van hogerop
+  expliciet terugdraaien. Precies wat MainWP doet: uploads/mainwp/0/.htaccess
+  zegt 'deny from all', maar uploads/mainwp/0/favorites/.htaccess zegt 'Order
+  allow,deny / Allow from all'. Op manage.mcmwebsites.nl zette de scanner
+  daardoor 48 publiek downloadbare premium plugin- en theme-zips op LOW: geen
+  mail, valse rust. Nu stopt de wandeling bij de eerste .htaccess die iets over
+  toegang zegt, en telt een blanket allow als NIET afgeschermd.
+  Tegelijk worden scoped blokken (<Files>, <FilesMatch>, <Limit>, <Directory>)
+  eerst gestript: de uploads-.htaccess van MC4WP weigert alleen
+  mc4wp-debug-log.php, en dat maakt de hele map niet afgeschermd. 'Order
+  allow,deny' geldt niet als deny-directive — daar is 'deny' een argument.
+  Beide uitkomsten zijn tegen de werkelijkheid geverifieerd: de afgeschermde
+  map op susenso.nl geeft HTTP 403, de MainWP-zips op manage.mcmwebsites.nl
+  geven HTTP 206.
+* Verbeterd: als PHP de map boven de webroot niet mag lezen (open_basedir)
+  staat dat expliciet in de admin i.p.v. een stille lege uitslag.
+* Filters: mcm_exposure_archive_regex, mcm_exposure_uploads_skip_dirs,
+  mcm_security_risky_login_names — per site bij te stellen zonder code.
+
 = 1.20.0 (2026-06-30) =
 * Nieuw: login-pagina uit Google houden (no-index)
   - Stuurt op de login-pagina een X-Robots-Tag: noindex, nofollow-header +

@@ -3,7 +3,7 @@
  * Plugin Name: MCM Security Hardener
  * Plugin URI:  https://github.com/MarcoMCM/mcm-security-hardener
  * Description: Schrijft security-hardening regels naar wp-config.php en .htaccess, gebaseerd op SecuPress Pro-niveau instellingen.
- * Version: 1.20.0
+ * Version: 1.21.0
  * Author: MCM Websites
  * Author URI: https://mcmwebsites.nl
  * Update URI: https://github.com/MarcoMCM/mcm-security-hardener
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MCM_SECURITY_VERSION', '1.20.0' );
+define( 'MCM_SECURITY_VERSION', '1.21.0' );
 define( 'MCM_SECURITY_FILE', __FILE__ );
 define( 'MCM_SECURITY_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -43,6 +43,7 @@ require_once MCM_SECURITY_DIR . 'includes/class-human-verification.php';
 require_once MCM_SECURITY_DIR . 'includes/class-db-prefix-manager.php';
 require_once MCM_SECURITY_DIR . 'includes/class-debug-watchdog.php';
 require_once MCM_SECURITY_DIR . 'includes/class-user-audit.php';
+require_once MCM_SECURITY_DIR . 'includes/class-user-enumeration.php';
 require_once MCM_SECURITY_DIR . 'includes/class-update-compat-check.php';
 require_once MCM_SECURITY_DIR . 'includes/class-registration-protection.php';
 require_once MCM_SECURITY_DIR . 'includes/class-backend-access.php';
@@ -84,6 +85,7 @@ final class MCM_Security_Hardener {
 		new MCM_DB_Prefix_Manager();
 		new MCM_Debug_Watchdog();
 		new MCM_User_Audit();
+		new MCM_User_Enumeration();
 
 		if ( is_admin() ) {
 			new MCM_Update_Compat_Check();
@@ -166,6 +168,19 @@ final class MCM_Security_Hardener {
 			// File exposure scanner
 			'exposure_scanner_enabled'         => true,
 			'block_risky_files_via_htaccess'   => false,
+			// Niveau 2 + 3 van de exposure-scanner (detectie staat aan, het
+			// blokkeren is opt-in: een .htaccess-block op archieven kan een
+			// legitieme download uit uploads breken).
+			'exposure_scan_uploads'            => true,
+			'exposure_scan_above_root'         => true,
+			'block_archives_in_uploads'        => false,
+
+			// Gebruikersnaam-enumeratie dichtzetten
+			'block_author_enumeration'         => true,
+			'restrict_rest_users'              => true,
+			'hide_authors_in_oembed'           => true,
+			'remove_users_sitemap'             => true,
+			'generic_login_errors'             => true,
 
 			// Anomaly scanner (vreemde bestanden/mappen in root + wp-content)
 			'anomaly_scanner_enabled'          => true,
