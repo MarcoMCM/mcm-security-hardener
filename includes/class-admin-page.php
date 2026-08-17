@@ -527,6 +527,7 @@ class MCM_Admin_Page {
 			'human_verification',
 			// registratiebescherming
 			'registration_honeypot', 'block_disposable_email',
+			'block_reserved_logins',
 			// backend access
 			'skip_admin_email_confirmation', 'block_non_admin_backend',
 			// file exposure scanner
@@ -1034,6 +1035,7 @@ class MCM_Admin_Page {
 						<?php
 						$this->render_toggle( 'registration_honeypot', 'Honeypot bij registratie', 'Voegt een verborgen veld toe dat alleen bots invullen. Gevuld veld &rarr; registratie geweigerd. Echte bezoekers zien het nooit.', $settings );
 						$this->render_toggle( 'block_disposable_email', 'Blokkeer wegwerp-e-mailadressen', 'Weigert registratie met tijdelijke/wegwerp-emailadressen (mailinator, yopmail, 10minutemail, etc.).', $settings );
+						$this->render_toggle( 'block_reserved_logins', 'Gereserveerde gebruikersnamen blokkeren', 'Maakt <code>admin</code>, <code>administrator</code>, <code>root</code>, <code>test</code>, <code>beheerder</code> en soortgelijke namen onregistreerbaar &mdash; via WordPress\' eigen <code>illegal_user_logins</code>, dus ook bij WooCommerce-registratie en bij handmatig aanmaken in de backend. Raakt <strong>bestaande</strong> accounts niet; die staan in de user-audit hieronder. Lijst aanpasbaar met het filter <code>mcm_security_reserved_logins</code>.', $settings );
 						?>
 						<tr>
 							<th scope="row"><label for="disposable_email_list">Eigen wegwerpdomeinen</label></th>
@@ -1458,6 +1460,38 @@ class MCM_Admin_Page {
 				database-update op <code>user_login</code> is te riskant. Voor een risico-login is de route:
 				nieuw account aanmaken, content overdragen, oude account verwijderen.
 			</p>
+
+			<?php
+			// Klantaccounts met een gereserveerde naam: signaal + doorverwijzing.
+			// Opruimen van klantaccounts is werk voor de nep-/botaccountmodule
+			// van de Site Optimizer (die heeft het veiligheidsslot en de
+			// CSV-backup); deze plugin doet security, geen klantenbeheer.
+			$reserved_accounts = MCM_User_Audit::get_reserved_login_accounts();
+			if ( ! empty( $reserved_accounts ) ) :
+				?>
+				<p style="margin:10px 0; padding:10px 12px; border-left:4px solid #bd8600; background:#fff8e5;">
+					<strong>&#9888; <?php echo (int) count( $reserved_accounts ); ?> account(s) zonder verhoogde rechten met een gereserveerde gebruikersnaam:</strong>
+					<?php
+					$labels = [];
+					foreach ( $reserved_accounts as $ra ) {
+						$labels[] = sprintf(
+							'%s (%s)',
+							$ra->user_login,
+							implode( ', ', (array) $ra->roles ) ?: 'geen rol'
+						);
+					}
+					echo esc_html( implode( ' &middot; ', $labels ) );
+					?>
+					<br />
+					<span class="description">
+						Zulke accounts kunnen niets in de backend, maar bezetten wel de meest geraden gebruikersnaam van de site &mdash; dit is de bevinding waar een beveiligingsscan op afgaat. Meestal is het een bot-registratie.
+						<strong>Opruimen doe je met de Site Optimizer</strong> (module Nep-/botaccounts: controleert server-side op orders, content en adres vóór verwijderen, met CSV-backup).
+						Nieuwe registraties met deze namen worden geweigerd zodra &ldquo;Gereserveerde gebruikersnamen blokkeren&rdquo; aan staat.
+					</span>
+				</p>
+				<?php
+			endif;
+			?>
 
 			<?php if ( empty( $risky ) ) : ?>
 				<p style="color:#1e7e34;"><strong>&#10003; Geen risico's gevonden op gebruikersnamen.</strong></p>

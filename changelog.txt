@@ -1,5 +1,53 @@
 MCM Security Hardener — Changelog
 
+= 1.21.1 (2026-08-17) =
+Scherpstelling van 1.21.0 op basis van wat er op de eigen sites uitkwam, plus
+een duidelijker scheiding tussen deze plugin en de Site Optimizer.
+
+* Nieuw: gereserveerde gebruikersnamen worden geweigerd bij registratie
+  ('block_reserved_logins', default aan)
+  - Hangt in WordPress' eigen filter 'illegal_user_logins', dat de core toepast
+    in wp_insert_user() én in de registratievalidatie. Daarmee is het in één
+    keer gedekt: WP-registratie, WooCommerce-klantregistratie en een handmatig
+    aangemaakte gebruiker in de backend.
+  - Harde lijst: admin, administrator, administrateur, root, test, demo,
+    wordpress, wp, webmaster, beheer, beheerder, sysadmin, superadmin.
+    Aanpasbaar met het filter 'mcm_security_reserved_logins'.
+  - Aanleiding: op susenso.nl had een bot in oktober 2025 de login 'admin'
+    geclaimd (rol customer, 0 orders, 0 content, alleen actief op de dag van
+    registratie). Achteraf opruimen kan altijd, maar dan is de naam al bezet en
+    meldt elke beveiligingsscan hem terecht. Dit is de preventiekant.
+  - Bestaande accounts worden hier niet door geraakt — een registratiefilter kan
+    niets veranderen aan wat er al staat.
+* Gewijzigd: de user-audit kijkt alleen nog naar accounts met VERHOOGDE rechten
+  - Klantaccounts horen bij de nep-/botaccountmodule van de Site Optimizer, met
+    zijn eigen veiligheidsslot (alleen rol customer, geen order, geen content,
+    geen adres) en CSV-backup. Deze plugin doet security, geen klantenbeheer.
+  - Klantaccounts met een gereserveerde naam worden nog wél geteld en getoond
+    als één regel met doorverwijzing naar de Site Optimizer — signaal zonder
+    het werk naar de verkeerde plugin te trekken.
+  - Hiermee verdwijnt ook een valse melding: op susenso werd 'susenso'
+    (susenso@vanmanen.eu, een echte klant) gevlagd omdat de login gelijk is aan
+    de domeinnaam. Die domeinnaam-regel geldt nu alleen bij verhoogde rechten,
+    waar 'susenso' voor een beheerder inderdaad net zo voorspelbaar is als
+    'admin'.
+* Fix: de exposure-scanner herkent nu ook zijn EIGEN .htaccess-blokkades
+  - Bevindingen in de webroot keken alleen naar een blanket deny op mapniveau,
+    niet naar scoped regels. Gevolg: een debug.log die door onze eigen
+    block_log_txt_files-regel al met 403 geweigerd werd, bleef wekelijks als
+    HIGH gemeld worden — mail over een probleem dat al opgelost was
+    (jouwtuin.mcmwebsites.nl, 14 MB debug.log).
+  - Er wordt nu per bevinding omhoog gelopen op zoek naar een <Files>- of
+    <FilesMatch>-blok met een deny dat de bestandsnaam raakt. <Files> gaat via
+    shell-wildcards, <FilesMatch> via de regex (met een geldigheidscheck, zodat
+    een onbruikbaar patroon geen PHP-warning geeft). Zo'n bevinding zakt naar
+    LOW met de reden "— geblokkeerd via .htaccess".
+  - mod_rewrite-regels met [F] worden bewust niet nagebouwd; het gevolg daarvan
+    is hoogstens een melding die strenger is dan de werkelijkheid, niet
+    omgekeerd.
+  - Geverifieerd op echte sites: jouwtuin zakt naar LOW (0 mailwaardig) terwijl
+    de 10 publiek downloadbare zips op mcmwebsites.nl MEDIUM blijven.
+
 = 1.21.0 (2026-08-17) =
 Aanleiding: de Xel-beveiligingsscan van sus en so meldde drie dingen die deze
 plugin nog niet zelf vond. Alle drie zitten er nu in, zodat we het voortaan

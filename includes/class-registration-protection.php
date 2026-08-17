@@ -30,11 +30,17 @@ class MCM_Registration_Protection {
 	public function __construct() {
 		$this->settings = get_option( 'mcm_security_settings', [] );
 
+		// Gereserveerde gebruikersnamen blokkeren. Staat vóór de early return:
+		// deze bescherming is onafhankelijk van honeypot/wegwerpdomein.
+		if ( $this->reserved_logins_enabled() ) {
+			add_filter( 'illegal_user_logins', [ $this, 'add_illegal_user_logins' ] );
+		}
+
 		$honeypot_on   = ! empty( $this->settings['registration_honeypot'] );
 		$disposable_on = ! empty( $this->settings['block_disposable_email'] );
 
 		if ( ! $honeypot_on && ! $disposable_on ) {
-			return; // Niets te doen.
+			return; // Niets meer te doen.
 		}
 
 		// Honeypot-veld renderen op beide registratieformulieren.
@@ -47,6 +53,56 @@ class MCM_Registration_Protection {
 		// dezelfde signature ($errors, $username, $email).
 		add_filter( 'registration_errors', [ $this, 'validate' ], 10, 3 );
 		add_filter( 'woocommerce_registration_errors', [ $this, 'validate' ], 10, 3 );
+	}
+
+	/**
+	 * Staat de reserved-logins-bescherming aan?
+	 *
+	 * Met terugval op de plugin-default, zodat de bescherming ook werkt op
+	 * sites die van een oudere versie updaten en de key nog niet in de DB
+	 * hebben staan.
+	 */
+	private function reserved_logins_enabled() {
+		if ( array_key_exists( 'block_reserved_logins', (array) $this->settings ) ) {
+			return ! empty( $this->settings['block_reserved_logins'] );
+		}
+		$defaults = method_exists( 'MCM_Security_Hardener', 'get_defaults' )
+			? MCM_Security_Hardener::get_defaults()
+			: [];
+		return ! empty( $defaults['block_reserved_logins'] );
+	}
+
+	/**
+	 * Voegt onze gereserveerde namen toe aan WordPress' eigen blokkeerlijst.
+	 *
+	 * WordPress past 'illegal_user_logins' toe in wp_insert_user() én in de
+	 * registratievalidatie, dus dit dekt in één keer: WP-registratie,
+	 * WooCommerce-klantregistratie (die loopt via wp_insert_user) én een
+	 * handmatig aangemaakte gebruiker in de backend.
+	 *
+	 * Waarom preventie en niet alleen detectie: op susenso.nl had een bot in
+	 * oktober 2025 de login 'admin' geclaimd (rol customer, geen orders, geen
+	 * content). Achteraf opruimen kan altijd, maar dan is de naam al bezet en
+	 * meldt elke beveiligingsscan hem terecht.
+	 *
+	 * BESTAANDE accounts worden hier niet door geraakt — een filter op
+	 * registratie kan niets veranderen aan wat er al staat. Die staan in de
+	 * user-audit op de instellingenpagina.
+	 *
+	 * Let op: dit blokkeert de naam ook voor jezelf in de backend. Aanpassen
+	 * kan met het filter 'mcm_security_reserved_logins'.
+	 *
+	 * @param array $logins Bestaande verboden logins.
+	 * @return array
+	 */
+	public function add_illegal_user_logins( $logins ) {
+		if ( ! class_exists( 'MCM_User_Audit' ) ) {
+			return $logins;
+		}
+		return array_values( array_unique( array_merge(
+			(array) $logins,
+			MCM_User_Audit::reserved_login_names()
+		) ) );
 	}
 
 	/**

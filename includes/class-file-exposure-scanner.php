@@ -314,6 +314,122 @@ class MCM_File_Exposure_Scanner {
 	}
 
 	/**
+	 * Is dit specifieke BESTAND geblokkeerd via .htaccess?
+	 *
+	 * Twee vormen, in deze volgorde:
+	 *   1. De hele map is afgeschermd (blanket deny) — dir_is_protected().
+	 *   2. Een scoped regel noemt dit bestand: <Files "debug.log"> of
+	 *      <FilesMatch "\.(log|txt)$"> met een deny erin.
+	 *
+	 * Vorm 2 is nodig omdat de plugin zijn eigen hardening zo schrijft. Zonder
+	 * deze check bleef de scanner een debug.log in de webroot elke week als
+	 * HIGH melden terwijl onze eigen .htaccess-regel hem al met 403 weigerde —
+	 * mail over een probleem dat al opgelost is.
+	 *
+	 * Wat we NIET nabouwen: mod_rewrite-regels met [F]. Die staan er ook
+	 * (block_php_in_uploads bijvoorbeeld), maar het volledig evalueren van
+	 * RewriteCond-ketens is geen scanner-werk. Gevolg is hoogstens een melding
+	 * die strenger is dan de werkelijkheid, niet omgekeerd.
+	 *
+	 * @param string $path    Absoluut pad naar het bestand.
+	 * @param string $stop_at Map waar we stoppen met omhoog lopen.
+	 * @return bool
+	 */
+	private static function file_is_blocked_by_htaccess( $path, $stop_at ) {
+		$dir      = dirname( $path );
+		$filename = basename( $path );
+
+		if ( self::dir_is_protected( $dir, $stop_at ) ) {
+			return true;
+		}
+
+		$current = untrailingslashit( $dir );
+		$stop_at = untrailingslashit( $stop_at );
+		$guard   = 0;
+
+		while ( $current && $guard < self::MAX_UPLOADS_DEPTH + 2 ) {
+			$guard++;
+			$htaccess = $current . '/.htaccess';
+			if ( is_readable( $htaccess ) ) {
+				$contents = (string) @file_get_contents( $htaccess, false, null, 0, 16384 );
+				if ( self::htaccess_blocks_filename( $contents, $filename ) ) {
+					return true;
+				}
+			}
+			if ( $current === $stop_at ) {
+				break;
+			}
+			$parent = dirname( $current );
+			if ( $parent === $current ) {
+				break;
+			}
+			$current = $parent;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Noemt een <Files>/<FilesMatch>-blok met een deny erin deze bestandsnaam?
+	 */
+	private static function htaccess_blocks_filename( $contents, $filename ) {
+		if ( '' === trim( $contents ) ) {
+			return false;
+		}
+
+		if ( ! preg_match_all(
+			'#<\s*(Files|FilesMatch)\s+([^>]+)>(.*?)<\s*/\s*\1\s*>#is',
+			$contents,
+			$matches,
+			PREG_SET_ORDER
+		) ) {
+			return false;
+		}
+
+		foreach ( $matches as $m ) {
+			$tag     = strtolower( $m[1] );
+			$pattern = trim( $m[2] );
+			$body    = $m[3];
+
+			// Alleen blokken die daadwerkelijk weigeren.
+			if ( ! preg_match( '/^\s*(Require\s+all\s+denied|Deny\s+from\s+all)\s*$/im', $body ) ) {
+				continue;
+			}
+
+			$pattern = trim( $pattern, "\"'" );
+			if ( '' === $pattern ) {
+				continue;
+			}
+
+			if ( 'filesmatch' === $tag ) {
+				// Apache-regex → PCRE. Alleen als de regex geldig is; een
+				// onbruikbaar patroon mag geen PHP-warning opleveren.
+				$regex = '#' . str_replace( '#', '\#', $pattern ) . '#i';
+				if ( false !== @preg_match( $regex, '' ) && @preg_match( $regex, $filename ) ) {
+					return true;
+				}
+				continue;
+			}
+
+			// <Files> gebruikt shell-achtige wildcards (* en ?), of een
+			// letterlijke naam.
+			if ( false !== strpos( $pattern, '*' ) || false !== strpos( $pattern, '?' ) ) {
+				// fnmatch() ontbreekt op sommige platforms (o.a. Windows).
+				if ( function_exists( 'fnmatch' ) && fnmatch( $pattern, $filename, FNM_CASEFOLD ) ) {
+					return true;
+				}
+				continue;
+			}
+
+			if ( 0 === strcasecmp( $pattern, $filename ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Wat zegt deze .htaccess over toegang tot de HELE map?
 	 *
 	 * Scoped blokken (<Files>, <FilesMatch>, <Limit>) worden eerst gestript:
@@ -476,6 +592,22 @@ class MCM_File_Exposure_Scanner {
 					}
 				}
 			}
+		}
+
+		// Bevindingen die al door een .htaccess-regel worden geweigerd zakken
+		// naar LOW. Zonder deze stap blijft de scanner wekelijks HIGH mailen
+		// over een bestand dat allang 403 geeft — bijvoorbeeld een debug.log
+		// die door onze eigen block_log_txt_files-regel wordt geblokkeerd.
+		foreach ( $findings as $i => $f ) {
+			if ( ! is_file( $f['path'] ) ) {
+				continue;
+			}
+			if ( ! self::file_is_blocked_by_htaccess( $f['path'], $abspath ) ) {
+				continue;
+			}
+			$findings[ $i ]['severity']     = 'low';
+			$findings[ $i ]['public_guess'] = false;
+			$findings[ $i ]['reason']      .= ' — geblokkeerd via .htaccess';
 		}
 
 		return $findings;

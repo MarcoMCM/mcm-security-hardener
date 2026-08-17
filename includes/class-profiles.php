@@ -62,6 +62,7 @@ class MCM_Profiles {
 			// registratiebescherming (anti-bot bij registratie)
 			'registration_honeypot'     => true,
 			'block_disposable_email'    => true,
+			'block_reserved_logins'     => true,
 			// backend toegang
 			'skip_admin_email_confirmation' => true,
 			// file exposure scanner (detectie op alle drie de niveaus; het
@@ -223,6 +224,7 @@ class MCM_Profiles {
 			'human_verification',
 			// registratiebescherming
 			'registration_honeypot', 'block_disposable_email',
+			'block_reserved_logins',
 			// backend toegang
 			'skip_admin_email_confirmation', 'block_non_admin_backend',
 			// file exposure scanner

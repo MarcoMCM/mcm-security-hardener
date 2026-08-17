@@ -35,23 +35,51 @@ class MCM_User_Audit {
 	}
 
 	/**
-	 * Gebruikersnamen die een aanvaller als eerste probeert.
+	 * Gebruikersnamen die zó voorspelbaar zijn dat ze geblokkeerd mogen worden
+	 * bij registratie. Harde lijst: hier zit geen naam tussen die een echte
+	 * klant redelijkerwijs zou kiezen.
 	 *
 	 * Aanleiding: de Xel-beveiligingsscan meldt "Er is een gebruikersnaam
 	 * gevonden met de naam 'admin'". Dat is geen theoretisch risico — het is
-	 * de helft van een brute-force-aanval die al klaar is.
+	 * de helft van een brute-force-aanval die al klaar is. Op susenso.nl bleek
+	 * dat een bot-registratie te zijn die de naam 'admin' had geclaimd.
 	 *
-	 * De sitenaam en het domein worden er automatisch bij gezet: op een site
-	 * susenso.nl is 'susenso' net zo voorspelbaar als 'admin'.
+	 * Deze lijst wordt gebruikt door MCM_Registration_Protection om nieuwe
+	 * registraties te weigeren, en om bestaande accounts te signaleren.
+	 *
+	 * @return string[] Lowercase logins.
+	 */
+	public static function reserved_login_names() {
+		$names = [
+			'admin', 'administrator', 'administrateur', 'root', 'test',
+			'demo', 'wordpress', 'wp', 'webmaster', 'beheer', 'beheerder',
+			'sysadmin', 'superadmin',
+		];
+
+		$names = apply_filters( 'mcm_security_reserved_logins', $names );
+
+		return array_values( array_unique( array_map( 'strtolower', (array) $names ) ) );
+	}
+
+	/**
+	 * Bredere lijst voor de AUDIT van accounts met verhoogde rechten.
+	 *
+	 * Bevat namen die voor een beheerdersaccount voorspelbaar zijn maar voor
+	 * een klantaccount gewoon een keuze kunnen zijn ('info', 'support'), plus
+	 * de domeinnaam van de site: op susenso.nl is 'susenso' voor een beheerder
+	 * net zo voorspelbaar als 'admin'.
+	 *
+	 * Bewust NIET gebruikt voor klantaccounts of voor het blokkeren van
+	 * registraties — op susenso bleek 'susenso' een echte klant te zijn
+	 * (Hendrik van Manen), en die hoort niet in een risicolijst.
 	 *
 	 * @return string[] Lowercase logins.
 	 */
 	public static function risky_login_names() {
-		$names = [
-			'admin', 'administrator', 'administrateur', 'root', 'test', 'tester',
-			'demo', 'user', 'gebruiker', 'wordpress', 'wp', 'webmaster', 'beheer',
-			'beheerder', 'support', 'info', 'sysadmin', 'guest', 'owner', 'editor',
-		];
+		$names = array_merge(
+			self::reserved_login_names(),
+			[ 'tester', 'user', 'gebruiker', 'support', 'info', 'guest', 'owner', 'editor' ]
+		);
 
 		// Domeinnaam zonder tld + www: 'susenso.nl' → 'susenso'.
 		$host = wp_parse_url( home_url(), PHP_URL_HOST );
@@ -78,42 +106,23 @@ class MCM_User_Audit {
 	 *   - slug_login    : de auteurs-slug is de login, dus /author/<login>/
 	 *                     verklapt hem (alleen gemeld bij gepubliceerde posts)
 	 *
-	 * Twee gerichte queries in plaats van alle users doorlopen: op een webshop
-	 * met tienduizenden klantaccounts is dat laatste geen optie.
+	 * Alleen accounts met VERHOOGDE RECHTEN. Klantaccounts blijven hier buiten:
+	 * die horen bij de nep-/botaccountmodule van de Site Optimizer, met zijn
+	 * eigen veiligheidsslot en CSV-backup. Deze plugin doet security, niet het
+	 * beheren of opruimen van klantenbestanden.
+	 *
+	 * Klantaccounts met een gereserveerde naam ('admin' & co) worden wél
+	 * geteld — zie get_reserved_login_accounts() — maar als doorverwijzing,
+	 * niet als iets om hier op te lossen.
 	 *
 	 * @return array<int,array{user:WP_User,issues:array<int,array{code:string,severity:string,label:string,advice:string,fixable:bool}>}>
 	 */
 	public static function get_risky_users() {
-		$owners = class_exists( 'MCM_Lockdown_Manager' )
-			? MCM_Lockdown_Manager::get_owners()
-			: [];
-
-		// 1. Users met verhoogde rechten (die zijn de moeite van een aanval waard).
-		$candidates = self::get_elevated_users();
-
-		// 2. Users met een voorspelbare login, ongeacht rol — een 'admin'-account
-		//    dat is gedegradeerd naar subscriber blijft een geldige login.
-		$by_name = get_users( [
-			'login__in' => self::risky_login_names(),
-			'orderby'   => 'user_login',
-			'order'     => 'ASC',
-		] );
-
-		$merged = [];
-		foreach ( array_merge( $candidates, $by_name ) as $user ) {
-			if ( in_array( $user->user_login, $owners, true ) ) {
-				continue;
-			}
-			if ( is_multisite() && is_super_admin( $user->ID ) ) {
-				continue;
-			}
-			$merged[ $user->ID ] = $user;
-		}
-
+		// get_elevated_users() sluit MCM-eigenaars en super-admins al uit.
 		$risky_names = self::risky_login_names();
 		$out         = [];
 
-		foreach ( $merged as $user ) {
+		foreach ( self::get_elevated_users() as $user ) {
 			$issues   = [];
 			$is_admin = in_array( 'administrator', (array) $user->roles, true );
 
@@ -154,6 +163,54 @@ class MCM_User_Audit {
 					'issues' => $issues,
 				];
 			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Accounts ZONDER verhoogde rechten die toch een gereserveerde naam hebben.
+	 *
+	 * Dit is de categorie die op susenso.nl opdook: een bot-registratie met de
+	 * login 'admin', rol customer, geen orders, geen content. Geen beheerrisico
+	 * (die rol kan niets), maar het bezet wel de meest geraden gebruikersnaam
+	 * van de site — en het is de bevinding waar de Xel-scan op afgaat.
+	 *
+	 * Opruimen gebeurt NIET hier: dat is klantaccount-beheer en dus werk voor
+	 * de nep-/botaccountmodule van de Site Optimizer. Deze methode levert
+	 * alleen het signaal + de doorverwijzing.
+	 *
+	 * @return WP_User[]
+	 */
+	public static function get_reserved_login_accounts() {
+		$reserved = self::reserved_login_names();
+		if ( empty( $reserved ) ) {
+			return [];
+		}
+
+		$users = get_users( [
+			'login__in' => $reserved,
+			'orderby'   => 'user_login',
+			'order'     => 'ASC',
+		] );
+
+		$owners = class_exists( 'MCM_Lockdown_Manager' )
+			? MCM_Lockdown_Manager::get_owners()
+			: [];
+
+		$out = [];
+		foreach ( $users as $user ) {
+			if ( in_array( $user->user_login, $owners, true ) ) {
+				continue;
+			}
+			if ( is_multisite() && is_super_admin( $user->ID ) ) {
+				continue;
+			}
+			// Verhoogde rollen staan al in de hoofdtabel hierboven.
+			if ( array_intersect( (array) $user->roles, self::ELEVATED_ROLES ) ) {
+				continue;
+			}
+			$out[] = $user;
 		}
 
 		return $out;

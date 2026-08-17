@@ -17,7 +17,7 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | **Plugin/theme lockdown** | Voorkomt dat klant-admins onverwacht plugins installeren of de theme-editor gebruiken |
 | **Custom login URL** | Verbergt `/wp-login.php` achter een eigen slug |
 | **Human Verification** | CSS-checkbox die zichzelf aanvinkt; blokkeert bots die direct submitten — werkt op login, register, lost-password én op WooCommerce my-account |
-| **Registratiebescherming** | Honeypot-veld + wegwerpdomein-filter op registratieformulieren (WP + WooCommerce) |
+| **Registratiebescherming** | Honeypot-veld + wegwerpdomein-filter op registratieformulieren (WP + WooCommerce), plus blokkade van gereserveerde gebruikersnamen (`admin`, `root`, `beheerder`, …) via WordPress' eigen `illegal_user_logins` — dekt ook WooCommerce-registratie en handmatig aanmaken |
 | **HTTP Basic Auth voor staging** | Een laag wachtwoord vóór de hele site, alleen actief op staging-omgevingen |
 | **Gebruikersnamen afschermen** | Zet de vier routes dicht waarlangs WordPress logins weggeeft (`?author=1`, REST `/wp/v2/users`, oEmbed, users-sitemap) + een generieke loginfout, zodat een mislukte login niet verklapt of de gebruikersnaam bestaat. Auteursarchieven blijven werken |
 | **Archieven in uploads blokkeren** | Optionele `.htaccess`-regel: 403 op directe download van zip/rar/7z/tar.gz/sql/bak uit `/uploads/`, met uitzondering van `woocommerce_uploads` en AVG-exports |
@@ -33,7 +33,7 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | **PHP Error Watcher** | Uurlijkse monitor van `debug.log`; mailt direct bij fatal/parse. Warning/deprecated tellen alleen mee voor de drempel als ze uit eigen code komen (core/systeem = ruis, alarmeert niet). Extra gevoelig 7 dagen na een PHP-versie-wissel |
 | **Toolbar-snelkoppeling** | "MCM Security" in de WP-adminbar (front + admin, alleen admins); kleurt rood als de anomalie-scan uit staat, met 1-klik aan/uit-toggle |
 | **User Audit** | Lijst van alle users met rol Administrator/Editor/Author/Contributor met 1-klik downgrade naar de MCM Klant-rol (mits Site Optimizer aanwezig) of naar Subscriber |
-| **Risico op gebruikersnamen** | Vlagt voorspelbare logins (`admin`, `test`, de domeinnaam van de site, …) en profielen waarvan de weergavenaam gelijk is aan de login — die staat anders onder elke post. Weergavenaam met 1 klik los te maken; hernoemen doet de plugin bewust niet |
+| **Risico op gebruikersnamen** | Voor accounts met **verhoogde rechten**: vlagt voorspelbare logins (`admin`, `test`, de domeinnaam van de site, …) en profielen waarvan de weergavenaam gelijk is aan de login — die staat anders onder elke post. Weergavenaam met 1 klik los te maken; hernoemen doet de plugin bewust niet. Klantaccounts met zo'n naam worden alleen gesignaleerd, met doorverwijzing naar de nep-/botaccountmodule van de Site Optimizer |
 | **WP major-update compat-check** | Bij een aankomende major WP-update: vergelijkt de "Tested up to" van alle actieve plugins en toont per plugin Compatibel / Niet getest / Onbekend |
 | **Notifier** | Alle plugin-mails en admin-notices gaan naar het centrale notificatie-adres (default `marco@mcmwebsites.nl`), niet naar de klant |
 
@@ -98,6 +98,7 @@ define( 'MCM_SECURITY_DISABLE_DEBUG_WATCHDOG', true );
 | `mcm_exposure_archive_regex` | Welke extensies gelden als archief/dump in de uploads- en boven-webroot-scan |
 | `mcm_exposure_uploads_skip_dirs` | Mapnamen die de uploads-scan overslaat (default: `woocommerce_uploads` + cache-mappen) |
 | `mcm_security_risky_login_names` | Gebruikersnamen die als voorspelbaar gelden (default: `admin` & co + de domeinnaam) |
+| `mcm_security_reserved_logins` | Gebruikersnamen die geweigerd worden bij registratie (harde lijst, zonder de domeinnaam) |
 | `mcm_php_error_watcher_own_paths` | Pad-fragmenten die als "eigen code" gelden voor de error-drempel |
 | `mcm_php_error_watcher_max_read_bytes` | Max bytes per check uit `debug.log` (default 1 MiB) |
 
