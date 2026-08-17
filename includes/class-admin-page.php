@@ -2200,6 +2200,109 @@ class MCM_Admin_Page {
 		);
 	}
 
+	/**
+	 * Advies per toggle: wat is de bedoeling, en wanneer wijk je af?
+	 *
+	 * Centraal, niet in de losse omschrijvingen, om twee redenen: het blijft
+	 * consistent over alle secties, en render_toggle() pikt het automatisch op
+	 * zodra een key hier staat.
+	 *
+	 * Aanleiding: de omschrijvingen legden uit wát een optie doet, maar niet
+	 * wat je moet kiezen. Bij een nieuwe site moest je dat elke keer opnieuw
+	 * afleiden.
+	 *
+	 * @return array<string,array{0:string,1:string}> key => [ 'aan'|'uit', voorwaarde ]
+	 */
+	private static function toggle_advice() {
+		return [
+			// Gebruikersnamen afschermen — geen impact op bezoekers.
+			'block_author_enumeration'       => [ 'aan', 'Uit alleen als een thema of plugin echt <code>?author=</code>-links gebruikt.' ],
+			'restrict_rest_users'            => [ 'aan', 'Uit alleen als een externe koppeling of headless frontend de userlijst anoniem uitleest (bv. een &ldquo;ons team&rdquo;-pagina die auteurs ophaalt).' ],
+			'hide_authors_in_oembed'         => [ 'aan', 'Uit alleen als je de auteursnaam wilt meegeven bij embeds op andere sites.' ],
+			'remove_users_sitemap'           => [ 'aan', 'Uit alleen als je auteurspagina&rsquo;s juist wilt laten indexeren (multi-auteur blog met SEO op auteurs).' ],
+			'generic_login_errors'           => [ 'aan', 'Vrijwel nooit uitzetten.' ],
+
+			// Detectie — kost niets, meldt alleen.
+			'exposure_scanner_enabled'       => [ 'aan', 'Detectie-only; verwijdert nooit zelf.' ],
+			'exposure_scan_uploads'          => [ 'aan', 'Draait binnen een tijdslimiet van 20 sec, ook op een grote mediabibliotheek.' ],
+			'exposure_scan_above_root'       => [ 'aan', 'Uit als de host het lezen van de map boven de webroot blokkeert &mdash; dat meldt de scanner dan zelf.' ],
+			'anomaly_scanner_enabled'        => [ 'aan', 'Tijdelijk uit tijdens groot eigen werk in de webroot; de toolbar kleurt rood zolang hij uit staat.' ],
+			'php_error_watcher_enabled'      => [ 'aan', 'Uit alleen als een andere monitoring dit al doet.' ],
+
+			// Blokkeren met neveneffect — bewust standaard uit.
+			'block_archives_in_uploads'      => [ 'uit', 'Aanzetten als de site geen zips uit de mediabibliotheek aanbiedt. <code>woocommerce_uploads</code> en AVG-exports zijn al uitgezonderd. Alleen Apache.' ],
+			'block_risky_files_via_htaccess' => [ 'uit', 'Aanzetten op sites die geen eigen <code>.sql</code>-, <code>.env</code>- of <code>info.php</code>-bestanden hoeven te serveren. Alleen Apache.' ],
+			'block_bad_user_agents'          => [ 'uit', 'Blokkeert curl/python-requests e.d. Aan op brochure-sites, uit zodra er webhooks of externe API-koppelingen zijn.' ],
+			'block_bad_url_content'          => [ 'uit', 'Uit laten: de regex gaf 44% valse treffers op legitieme URLs (apostrof in een zoekterm, fragment-URLs). De server-WAF doet dit beter.' ],
+			'block_non_admin_backend'        => [ 'uit', 'Aan als klanten niets in <code>/wp-admin/</code> te zoeken hebben; uit bij een klantportaal of WooCommerce-account-pagina&rsquo;s in de backend.' ],
+
+			// Registratie.
+			'registration_honeypot'          => [ 'aan', 'Onzichtbaar voor echte bezoekers.' ],
+			'block_disposable_email'         => [ 'aan', 'Uit op staging, anders kun je de registratieflow niet met wegwerp-adressen testen.' ],
+			'block_reserved_logins'          => [ 'aan', 'Blokkeert ook voor jezelf in de backend; aanpasbaar met het filter <code>mcm_security_reserved_logins</code>. Bestaande accounts blijven ongemoeid.' ],
+			'human_verification'             => [ 'aan', 'Uit op staging (vervelend bij veel testen).' ],
+
+			// Lockdown — hier zit de valkuil van vandaag.
+			'lockdown_plugins'               => [ 'aan', 'Op klantsites. <strong>Let op:</strong> zonder <code>MCM_SECURITY_OWNERS</code> in wp-config verbergt dit ook v&oacute;&oacute;r jou de plugin-updates.' ],
+			'lockdown_themes'                => [ 'aan', 'Zelfde voorbehoud als bij plugins.' ],
+			'disallow_file_mods'             => [ 'aan', 'Zelfde voorbehoud: eigenaar-constante in wp-config zetten, anders sluit je jezelf ook buiten.' ],
+
+			// Overig.
+			'block_xmlrpc'                   => [ 'aan', 'Uit als Jetpack of een app XML-RPC nodig heeft.' ],
+			'block_log_txt_files'            => [ 'aan', 'Let op: blokkeert ook een echte <code>ads.txt</code> of <code>robots.txt</code> als bestand.' ],
+			'noindex_login'                  => [ 'aan', 'Al ge&iuml;ndexeerde URLs verdwijnen pas bij de volgende crawl.' ],
+			'auto_update_minor'              => [ 'aan', 'Uit op staging als je zelf wilt bepalen wanneer die meegaat.' ],
+		];
+	}
+
+	/**
+	 * Rendert de advies-regel onder een toggle.
+	 *
+	 * Staat er geen expliciet advies in toggle_advice(), dan wordt het afgeleid
+	 * uit de profielen: zit de toggle in Basic, dan is "aan laten" het advies.
+	 * Zo krijgt élke toggle een regel zonder dat er een tweede lijst bijgehouden
+	 * moet worden — en zonder dat de voor-de-hand-liggende opties (versie
+	 * verbergen, readme blokkeren) een overbodige voorwaarde krijgen.
+	 */
+	private function render_toggle_advice( $name ) {
+		$all = self::toggle_advice();
+
+		if ( isset( $all[ $name ] ) ) {
+			list( $verdict, $condition ) = $all[ $name ];
+			$aan = ( 'aan' === $verdict );
+			$this->print_advice_line(
+				$aan ? 'Aanbevolen: aan laten' : 'Standaard uit',
+				$aan ? '#1e7e34' : '#646970',
+				$condition
+			);
+			return;
+		}
+
+		if ( ! class_exists( 'MCM_Profiles' ) ) {
+			return;
+		}
+
+		$profiles = MCM_Profiles::get_profiles();
+		foreach ( [ 'basic' => 'Aanbevolen: aan laten', 'standard' => 'Aan in het Standard-profiel', 'strict' => 'Aan in het Strict-profiel' ] as $profile => $label ) {
+			if ( ! empty( $profiles[ $profile ]['settings'][ $name ] ) ) {
+				$this->print_advice_line( $label, 'basic' === $profile ? '#1e7e34' : '#646970', '' );
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Eén advies-regel. Zonder voorwaarde geen gedachtestreepje.
+	 */
+	private function print_advice_line( $label, $color, $condition = '' ) {
+		printf(
+			'<p class="description" style="margin-top:4px;"><strong style="color:%s;">%s</strong>%s</p>',
+			esc_attr( $color ),
+			esc_html( $label ),
+			$condition ? ' &mdash; ' . $condition : ''
+		);
+	}
+
 	private function render_toggle( $name, $label, $description, $settings ) {
 		$checked = ! empty( $settings[ $name ] ) ? 'checked' : '';
 		?>
@@ -2211,6 +2314,7 @@ class MCM_Admin_Page {
 					<span class="mcm-toggle-slider"></span>
 				</label>
 				<p class="description"><?php echo $description; ?></p>
+				<?php $this->render_toggle_advice( $name ); ?>
 			</td>
 		</tr>
 		<?php

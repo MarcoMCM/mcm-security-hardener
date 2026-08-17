@@ -1,5 +1,27 @@
 MCM Security Hardener — Changelog
 
+= 1.21.2 (2026-08-17) =
+* Nieuw: advies-regel onder élke toggle op de instellingenpagina
+  - De omschrijvingen legden uit wát een optie doet, maar niet wat je moet
+    kiezen. Bij een nieuwe site moest je dat elke keer opnieuw afleiden.
+  - Groen "Aanbevolen: aan laten" of grijs "Standaard uit", met daarachter de
+    voorwaarde waaronder je afwijkt. Bijvoorbeeld:
+      * REST-userlijst → aan laten; uit alleen als een externe koppeling of
+        headless frontend die lijst anoniem uitleest
+      * block_archives_in_uploads → standaard uit; aanzetten als de site geen
+        zips uit de mediabibliotheek aanbiedt
+      * lockdown_plugins → aan op klantsites, met de waarschuwing dat dit
+        zonder MCM_SECURITY_OWNERS in wp-config óók voor jezelf de
+        plugin-updates verbergt (die valkuil kostte vandaag uitzoekwerk)
+      * block_bad_url_content → uit laten, met de reden erbij (44% valse
+        treffers op legitieme URLs)
+  - 26 toggles hebben een expliciet advies met voorwaarde; de overige 28
+    (versie verbergen, readme blokkeren, en dergelijke) krijgen hun advies
+    afgeleid uit de profielen: zit een toggle in Basic, dan is "aan laten" het
+    advies. Zo krijgt elke toggle een regel zonder tweede lijst om bij te
+    houden, en zonder overbodige voorwaarden bij de voor-de-hand-liggende
+    opties. Getest: 54 van 54 toggles krijgen een regel.
+
 = 1.21.1 (2026-08-17) =
 Scherpstelling van 1.21.0 op basis van wat er op de eigen sites uitkwam, plus
 een duidelijker scheiding tussen deze plugin en de Site Optimizer.
