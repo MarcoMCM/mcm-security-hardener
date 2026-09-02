@@ -1108,7 +1108,7 @@ class MCM_Admin_Page {
 						$this->render_toggle( 'disable_directory_listing', 'Schakel directory listing uit', 'Options -Indexes &mdash; voorkomt dat mappeninhoud zichtbaar is.', $settings );
 						$this->render_toggle( 'block_php_easter_eggs', 'Blokkeer PHP info disclosure', 'Blokkeert PHP Easter Eggs informatielekken.', $settings );
 						$this->render_toggle( 'hide_php_version', 'Verwijder PHP versie', 'Verwijdert X-Powered-By header en ServerSignature.', $settings );
-						$this->render_toggle( 'hide_wp_version', 'Verwijder WordPress versie', 'Verwijdert WP generator tag, ?ver= parameters en readme.html.', $settings );
+						$this->render_toggle( 'hide_wp_version', 'Verwijder WordPress versie', 'Verwijdert de WP generator tag, ?ver= bij core-bestanden en readme.html. Thema- en plugin-assets houden hun ?ver=, anders blijft oude CSS/JS in de browsercache hangen.', $settings );
 						$this->render_toggle( 'block_readme_files', 'Blokkeer readme/changelog bestanden', 'Retourneert 404 voor readme.txt, changelog.md, debug.log, etc.', $settings );
 						$this->render_toggle( 'block_sensitive_php', 'Blokkeer gevoelige PHP bestanden', 'Blokkeert directe toegang tot wp-config.php, install.php, en admin-includes.', $settings );
 						$this->render_toggle( 'block_bad_urls', 'Blokkeer verdachte URLs', 'Blokkeert bekende aanvalspaden (.env, .git, backup bestanden, shells).', $settings );

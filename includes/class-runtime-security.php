@@ -45,13 +45,35 @@ class MCM_Runtime_Security {
 	}
 
 	/**
-	 * Remove ?ver= from enqueued scripts and styles.
+	 * Remove ?ver= from enqueued scripts and styles — alleen bij core-assets.
+	 *
+	 * Waarom niet overal: bij thema- en plugin-assets is ?ver= geen lek maar de
+	 * cache-busting. Haalt de plugin hem daar weg, dan blijft de browser van een
+	 * bezoeker maandenlang dezelfde URL zien en dus de oude JS/CSS serveren; een
+	 * uitgerolde wijziging komt dan niet aan. Het lek dat deze functie hoort te
+	 * dichten zit uitsluitend in WordPress' eigen bestanden: die dragen het
+	 * core-versienummer in ?ver=. Thema's en plugins zetten daar hun eigen
+	 * versie of filemtime in, wat niets over WordPress verraadt.
+	 *
+	 * Vastgesteld 2 september 2026: een gewijzigde marco-hub.js in het
+	 * klantensysteem bleef op live onzichtbaar terwijl het bestand op de server
+	 * aantoonbaar klopte — de browser hield de oude, versieloze URL vast.
 	 */
 	public function remove_version_query( $src ) {
-		if ( strpos( $src, 'ver=' ) ) {
-			$src = remove_query_arg( 'ver', $src );
+		if ( false === strpos( $src, 'ver=' ) ) {
+			return $src;
 		}
-		return $src;
+
+		$path = (string) wp_parse_url( $src, PHP_URL_PATH );
+
+		$is_core = ( false !== strpos( $path, '/wp-includes/' ) )
+			|| ( false !== strpos( $path, '/wp-admin/' ) );
+
+		if ( ! $is_core ) {
+			return $src;
+		}
+
+		return remove_query_arg( 'ver', $src );
 	}
 
 	/**

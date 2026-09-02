@@ -1,5 +1,20 @@
 MCM Security Hardener — Changelog
 
+= 1.22.0 (2026-09-02) =
+* Fix: "Verwijder WordPress versie" haalde ?ver= ook weg bij thema- en plugin-assets
+  - Daardoor laadde elke bezoeker maandenlang dezelfde versieloze URL, en bleef
+    de browser de oude JS/CSS serveren. Een uitgerolde wijziging kwam niet aan:
+    de server leverde het nieuwe bestand, de bezoeker zag het oude.
+  - Gevonden op het MCM-klantensysteem: een aangepaste marco-hub.js bleef op
+    live onzichtbaar terwijl bestand, data en uitlevering aantoonbaar klopten.
+    Op een lokale kopie zonder deze plugin was de wijziging meteen zichtbaar.
+  - De toggle doet nu wat de omschrijving belooft: alleen bij WordPress' eigen
+    bestanden (/wp-includes/ en /wp-admin/) verdwijnt ?ver=, want alleen dáár
+    staat het core-versienummer in. Thema's en plugins zetten hun eigen versie
+    of filemtime in ?ver=; dat verraadt niets over WordPress en is juist de
+    cache-busting die je nodig hebt.
+  - Geen instelling gewijzigd: wie de toggle aan had, houdt hem aan.
+
 = 1.21.2 (2026-08-17) =
 * Nieuw: advies-regel onder élke toggle op de instellingenpagina
   - De omschrijvingen legden uit wát een optie doet, maar niet wat je moet
