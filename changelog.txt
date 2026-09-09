@@ -1,5 +1,33 @@
 MCM Security Hardener — Changelog
 
+= 1.23.0 (2026-09-09) =
+* Nieuw: real-time mail bij een nieuw administrator-account (class-new-admin-alert.php)
+  - Aanleiding: bij de tessaswinkels.com-hack (sept 2026) creëerde een
+    backdoor-plugin gedurende 7 weken ongezien 11 rogue administrator-
+    accounts. De bestaande User Audit is een handmatig te openen lijst
+    zonder cron of mail — niemand keek in die periode.
+  - Hookt op 'set_user_role': mailt direct zodra een account de rol
+    administrator krijgt, ongeacht of dat via het registratieformulier,
+    wp-admin, wp-cli of een script gaat dat WordPress' eigen user-API
+    gebruikt. MCM-eigenaars zijn uitgezonderd (geen ruis bij oplevering).
+  - Grens: een aanvaller die rechtstreeks in de database schrijft, buiten
+    WP's hooks om, blijft ongezien — fundamentele grens van elke
+    in-WordPress plugin, geen gat in deze implementatie.
+* Nieuw: Anomaly Scanner kijkt nu ook één niveau in wp-content/plugins en
+  wp-content/mu-plugins (class-anomaly-scanner.php)
+  - Aanleiding: dezelfde hack. De twee gevaarlijkste vondsten — een
+    backdoor vermomd als plugin en een nep-"Wordfence Security" mu-plugin —
+    stonden allebei precies één niveau dieper dan de bestaande top-level
+    scan kijkt (die alleen checkt dat de map 'plugins'/'mu-plugins' zelf
+    bestaat, niet wat erin zit). Met de plugin toen actief was dit nooit
+    gemaild.
+  - Werkt via baseline-diff (nieuwe optie 'mcm_anomaly_plugin_baseline'),
+    niet via een statische whitelist: elke site heeft andere plugins, dus
+    de scanner onthoudt per site wat er bij de vórige scan stond en meldt
+    alleen wat is bijgekomen. Nieuw mu-plugin-item = HIGH, nieuw item in
+    plugins/ = MEDIUM. Eerste scan ooit legt alleen de baseline vast en
+    meldt niets, anders vlagt activatie meteen elke bestaande plugin.
+
 = 1.22.0 (2026-09-02) =
 * Fix: "Verwijder WordPress versie" haalde ?ver= ook weg bij thema- en plugin-assets
   - Daardoor laadde elke bezoeker maandenlang dezelfde versieloze URL, en bleef

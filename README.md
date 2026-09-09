@@ -29,7 +29,8 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 |---|---|
 | **WP_DEBUG productie-watchdog** | Detecteert `WP_DEBUG=true` op productie-omgevingen → admin-notice + 1×/24u mail naar de eigenaar |
 | **File Exposure Scanner** | Wekelijkse filesystem-scan op drie niveaus: **webroot** (info.php/phpinfo(), `.env`, wp-config-backups, SQL-dumps, Adminer, phpMyAdmin), **uploads recursief** (archieven en dumps — vindt de vergeten plugin-zip in `uploads/2023/01/`) en **boven de webroot** (achtergelaten `.bak`/`.tar.gz`/scripts). Herkent een deny-`.htaccess` als afscherming, dus een correct afgeschermde backup-map is geen lek. Severity-tiers, mail alleen bij HIGH/MEDIUM, detectie-only |
-| **Anomaly Scanner** | Wekelijkse scan van root + `wp-content` (top-level) op onbekende bestanden/mappen via whitelist; severity-tiers (HIGH = los `.php`/shell, MEDIUM = onbekende root-map, LOW = info). Mailt alleen bij HIGH/MEDIUM, detectie-only |
+| **Anomaly Scanner** | Wekelijkse scan van root + `wp-content` (top-level) op onbekende bestanden/mappen via whitelist, plús één niveau extra in `wp-content/plugins` en `wp-content/mu-plugins` via baseline-diff (geen whitelist — plugin-namen verschillen per site, dus de scanner onthoudt zelf wat er bij de vorige scan stond). Severity-tiers (HIGH = los `.php`/shell of nieuw mu-plugin-item, MEDIUM = onbekende root-map of nieuw item in `plugins/`, LOW = info). Mailt alleen bij HIGH/MEDIUM, detectie-only |
+| **New Admin Alert** | Real-time mail zodra een account de rol Administrator krijgt (hook `set_user_role`) — ongeacht of dat via het registratieformulier, wp-admin, wp-cli of een script gaat dat WordPress' eigen user-API gebruikt. MCM-eigenaars uitgezonderd. Vangt geen rechtstreekse database-writes buiten die API om |
 | **PHP Error Watcher** | Uurlijkse monitor van `debug.log`; mailt direct bij fatal/parse. Warning/deprecated tellen alleen mee voor de drempel als ze uit eigen code komen (core/systeem = ruis, alarmeert niet). Extra gevoelig 7 dagen na een PHP-versie-wissel |
 | **Toolbar-snelkoppeling** | "MCM Security" in de WP-adminbar (front + admin, alleen admins); kleurt rood als de anomalie-scan uit staat, met 1-klik aan/uit-toggle |
 | **User Audit** | Lijst van alle users met rol Administrator/Editor/Author/Contributor met 1-klik downgrade naar de MCM Klant-rol (mits Site Optimizer aanwezig) of naar Subscriber |
@@ -128,11 +129,12 @@ mcm-security-hardener/
 │   ├── class-db-prefix-manager.php    Random DB-prefix migratie + backup
 │   ├── class-debug-watchdog.php       WP_DEBUG productie-detector
 │   ├── class-user-audit.php           Users met verhoogde rechten
+│   ├── class-new-admin-alert.php      Real-time mail bij nieuw administrator-account
 │   ├── class-update-compat-check.php  WP-update plugin-compat tabel
 │   ├── class-backend-access.php       Skip email-confirm + non-admin backend-block
 │   ├── class-file-exposure-scanner.php  Scan op blootgestelde bestanden (webroot + uploads + boven webroot)
 │   ├── class-user-enumeration.php       Gebruikersnamen afschermen (author/REST/oEmbed/sitemap/loginfout)
-│   ├── class-anomaly-scanner.php      Scan op vreemde bestanden/mappen (whitelist)
+│   ├── class-anomaly-scanner.php      Scan op vreemde bestanden/mappen (whitelist + plugin-baseline-diff)
 │   ├── class-admin-bar.php            Toolbar-snelkoppeling + scan aan/uit-toggle
 │   ├── class-php-error-watcher.php    debug.log-monitor met herkomst-filtering
 │   ├── class-profiles.php             Basic/Standard/Strict/Staging-profielen

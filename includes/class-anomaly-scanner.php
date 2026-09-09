@@ -16,18 +16,36 @@
  *     onbekende dropper waarvan we de naam niet vooraf kennen.
  *
  * Gedrag:
- *   - Top-level only (géén recursie): ABSPATH en ABSPATH/wp-content, ieder
+ *   - Top-level (géén recursie) voor ABSPATH en ABSPATH/wp-content, ieder
  *     één niveau diep. Snel + voorspelbaar, zelfde keuze als de exposure-scanner.
+ *   - Eén niveau extra, alléén voor wp-content/plugins en wp-content/mu-plugins:
+ *     een baseline-diff (zie hieronder) — géén statische whitelist, want
+ *     plugin-mapnamen zijn per site anders en kunnen niet vooraf bekend zijn.
  *   - Severity-tiers om alarm-moeheid te voorkomen:
  *       HIGH    onbekend .php-bestand (root of los in wp-content) → daar
- *               landen shells.
- *       MEDIUM  onbekende map in de root.
+ *               landen shells. Ook: nieuw mu-plugin-bestand/-map sinds
+ *               vorige scan (mu-plugins draaien altijd, zelden nieuw).
+ *       MEDIUM  onbekende map in de root. Ook: nieuw item in
+ *               wp-content/plugins sinds vorige scan.
  *       LOW     onbekende map in wp-content (vaak door een plugin gemaakt)
  *               of een onbekend niet-uitvoerbaar bestand.
  *   - Mailt alleen bij HIGH/MEDIUM-bevindingen (anti-ruis). LOW-items staan
  *     wél in de admin-tabel maar triggeren geen mail.
  *   - Anti-spam: dezelfde set bevindingen mailt maar één keer (hash-vergelijk).
  *   - Verwijdert NOOIT zelf. Detectie + melding only.
+ *
+ * Baseline-diff voor plugins/mu-plugins (sinds 1.23.0):
+ *   Aanleiding: bij de tessaswinkels.com-hack (sept 2026) stonden de twee
+ *   gevaarlijkste vondsten — een backdoor vermomd als plugin en een nep-
+ *   "Wordfence Security" mu-plugin — allebei precies één niveau dieper dan
+ *   de top-level scan kijkt, dus onopgemerkt. Een statische whitelist werkt
+ *   hier niet (elke site heeft andere plugins), dus de scanner onthoudt per
+ *   site welke items er bij de vórige scan stonden (optie
+ *   'mcm_anomaly_plugin_baseline') en meldt alleen wat er sindsdien is
+ *   bijgekomen. De allereerste scan legt alleen de baseline vast en meldt
+ *   niets (anders vlagt hij bij activatie meteen elke bestaande plugin). Een
+ *   bewust geïnstalleerde nieuwe plugin wordt dus één keer gemeld ter
+ *   controle en verdwijnt daarna vanzelf uit de bevindingen.
  *
  * Bijstellen zonder code te wijzigen:
  *   - filter 'mcm_anomaly_root_whitelist'       (array van namen, lowercase)
@@ -49,6 +67,7 @@ class MCM_Anomaly_Scanner {
 	const ACTION_TOGGLE         = 'mcm_security_toggle_anomaly';
 	const OPTION_RESULTS        = 'mcm_anomaly_scan_results';
 	const OPTION_LAST_MAIL_HASH = 'mcm_anomaly_last_mailed_hash';
+	const OPTION_PLUGIN_BASELINE = 'mcm_anomaly_plugin_baseline';
 	const MAX_FILES_PER_DIR     = 1000; // perf-cap per directory
 
 	public function __construct() {
@@ -246,6 +265,76 @@ class MCM_Anomaly_Scanner {
 				$isdir = is_dir( $path );
 				$findings[] = self::classify( 'wp-content', $entry, $path, $isdir, $abspath );
 			}
+
+			// 3) wp-content/plugins en wp-content/mu-plugins — één niveau
+			// dieper dan hierboven, via baseline-diff i.p.v. whitelist.
+			$findings = array_merge( $findings, self::scan_plugin_baseline( 'plugins', $wpc . '/plugins', $abspath ) );
+			$findings = array_merge( $findings, self::scan_plugin_baseline( 'mu-plugins', $wpc . '/mu-plugins', $abspath ) );
+		}
+
+		return $findings;
+	}
+
+	/**
+	 * Vergelijkt de huidige inhoud van $dir (één niveau, geen recursie) met
+	 * de inhoud bij de vórige scan en meldt alleen wat er is bijgekomen.
+	 * Werkt de baseline meteen bij naar de huidige staat.
+	 *
+	 * @param string $location 'plugins' of 'mu-plugins' — bepaalt severity.
+	 * @param string $dir      Volledig pad naar de map.
+	 * @param string $abspath  ABSPATH zonder trailing slash, voor relpath.
+	 *
+	 * @return array<int,array{type:string,reason:string,severity:string,path:string,relpath:string,is_dir:bool,size:int,mtime:int}>
+	 */
+	private static function scan_plugin_baseline( $location, $dir, $abspath ) {
+		if ( ! is_dir( $dir ) ) {
+			return [];
+		}
+
+		$current = self::list_dir_entries( $dir );
+		sort( $current );
+
+		$baselines = get_option( self::OPTION_PLUGIN_BASELINE, [] );
+		if ( ! is_array( $baselines ) ) {
+			$baselines = [];
+		}
+		$previous = isset( $baselines[ $location ] ) ? (array) $baselines[ $location ] : null;
+
+		$baselines[ $location ] = $current;
+		update_option( self::OPTION_PLUGIN_BASELINE, $baselines );
+
+		// Eerste scan ooit voor deze locatie: alleen baseline vastleggen,
+		// niets melden (anders vlagt de allereerste run élke bestaande plugin).
+		if ( null === $previous ) {
+			return [];
+		}
+
+		$new_entries = array_diff( $current, $previous );
+		if ( empty( $new_entries ) ) {
+			return [];
+		}
+
+		$is_mu    = ( 'mu-plugins' === $location );
+		$severity = $is_mu ? 'high' : 'medium';
+		$reason   = $is_mu
+			? 'Nieuw mu-plugin-bestand/-map sinds vorige scan — mu-plugins draaien altijd en verschijnen niet in de plugin-lijst; zelden legitiem nieuw'
+			: 'Nieuw item in wp-content/plugins sinds vorige scan — controleer of dit een bewust geïnstalleerde plugin is';
+
+		$findings = [];
+		foreach ( $new_entries as $entry ) {
+			$path  = $dir . '/' . $entry;
+			$isdir = is_dir( $path );
+
+			$findings[] = [
+				'type'     => 'new_plugin_item',
+				'reason'   => $reason,
+				'severity' => $severity,
+				'path'     => $path,
+				'relpath'  => ltrim( str_replace( $abspath, '', $path ), '/\\' ),
+				'is_dir'   => (bool) $isdir,
+				'size'     => is_file( $path ) ? (int) @filesize( $path ) : 0,
+				'mtime'    => (int) @filemtime( $path ),
+			];
 		}
 
 		return $findings;
