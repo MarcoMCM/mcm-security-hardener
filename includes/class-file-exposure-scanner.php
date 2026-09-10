@@ -552,6 +552,12 @@ class MCM_File_Exposure_Scanner {
 			return $ra < $rb ? -1 : 1;
 		} );
 
+		// Als "veilig" gemarkeerde bevindingen (MCM_Finding_Ignore) blijven
+		// permanent buiten beeld, ook uit de mail — zie class-finding-ignore.php.
+		if ( class_exists( 'MCM_Finding_Ignore' ) ) {
+			$unique = MCM_Finding_Ignore::filter( 'exposure', $unique );
+		}
+
 		return $unique;
 	}
 

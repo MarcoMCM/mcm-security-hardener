@@ -1,5 +1,20 @@
 MCM Security Hardener — Changelog
 
+= 1.25.0 (2026-09-10) =
+* Nieuw: "Markeer als veilig" per bevinding (class-finding-ignore.php)
+  - Aanleiding: na het opschonen van tessaswinkels.com bleven een paar
+    beoordeelde, onschuldige bevindingen (een oud Avada-demo-archief, een
+    afgeschermde database-dump) elke week terugkomen in zowel de
+    Anomaly Scanner als de File Exposure Scanner.
+  - Nieuwe knop "Markeer als veilig" per rij in beide detectie-tabellen.
+    Een gemarkeerd item verdwijnt permanent uit zowel de admin-tabel als
+    de mail, tot iemand het expliciet terugzet via de nieuwe sectie
+    "Genegeerde bevindingen" onderaan elke tabel.
+  - Identificatie op het volledige pad (niet op naam/grootte), dus een
+    normale update van hetzelfde bestand zet de markering niet stilzwijgend
+    weer aan.
+  - Gedeeld tussen beide scanners: één centrale opslag, geen dubbel werk.
+
 = 1.24.0 (2026-09-10) =
 * Nieuw: detectie van webshells verstopt als code-snippet in de database
   (class-snippet-monitor.php + uitbreiding class-anomaly-scanner.php)

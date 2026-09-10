@@ -38,6 +38,7 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | **Risico op gebruikersnamen** | Voor accounts met **verhoogde rechten**: vlagt voorspelbare logins (`admin`, `test`, de domeinnaam van de site, …) en profielen waarvan de weergavenaam gelijk is aan de login — die staat anders onder elke post. Weergavenaam met 1 klik los te maken; hernoemen doet de plugin bewust niet. Klantaccounts met zo'n naam worden alleen gesignaleerd, met doorverwijzing naar de nep-/botaccountmodule van de Site Optimizer |
 | **WP major-update compat-check** | Bij een aankomende major WP-update: vergelijkt de "Tested up to" van alle actieve plugins en toont per plugin Compatibel / Niet getest / Onbekend |
 | **Notifier** | Alle plugin-mails en admin-notices gaan naar het centrale notificatie-adres (default `marco@mcmwebsites.nl`), niet naar de klant |
+| **Markeer als veilig** | Knop per bevindingsrij in File Exposure Scanner en Anomaly Scanner — verwijdert 'm permanent uit tabel én mail, tot je 'm terugzet via "Genegeerde bevindingen" onderaan de tabel. Identificatie op het volledige pad, dus een normale update van hetzelfde bestand zet de markering niet stilzwijgend weer aan |
 
 ### 🚀 Distributie
 
@@ -140,6 +141,7 @@ mcm-security-hardener/
 │   ├── class-admin-bar.php            Toolbar-snelkoppeling + scan aan/uit-toggle
 │   ├── class-php-error-watcher.php    debug.log-monitor met herkomst-filtering
 │   ├── class-profiles.php             Basic/Standard/Strict/Staging-profielen
+│   ├── class-finding-ignore.php        "Markeer als veilig" — gedeelde ignore-lijst
 │   └── class-notifier.php             Centrale email/notice-helper
 └── vendor/plugin-update-checker/      GitHub self-update (YahnisElsts/PUC v5)
 ```

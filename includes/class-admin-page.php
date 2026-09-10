@@ -811,6 +811,7 @@ class MCM_Admin_Page {
 									<th style="width:90px;">Grootte</th>
 									<th style="width:120px;">Laatst gew.</th>
 									<th style="width:80px;">Publiek?</th>
+									<th style="width:130px;">Actie</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -829,6 +830,7 @@ class MCM_Admin_Page {
 									<td><?php echo esc_html( size_format( (int) $f['size'] ) ); ?></td>
 									<td><?php echo $f['mtime'] ? esc_html( wp_date( 'd-m-Y', (int) $f['mtime'] ) ) : '—'; ?></td>
 									<td><?php echo ! empty( $f['public_guess'] ) ? '<span style="color:#b32d2e;">ja</span>' : '<span style="color:#646970;">nee</span>'; ?></td>
+									<td><?php $this->render_ignore_form( 'exposure', $f ); ?></td>
 								</tr>
 								<?php endforeach; ?>
 							</tbody>
@@ -844,6 +846,7 @@ class MCM_Admin_Page {
 						<p><em>Nog geen scan uitgevoerd.</em></p>
 						<?php
 					}
+					$this->render_ignored_list( 'exposure' );
 					?>
 					<p>
 						<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . MCM_File_Exposure_Scanner::ACTION_MANUAL_SCAN ), MCM_File_Exposure_Scanner::ACTION_MANUAL_SCAN ) ); ?>"
@@ -894,6 +897,7 @@ class MCM_Admin_Page {
 									<th>Pad (relatief)</th>
 									<th style="width:60px;">Type</th>
 									<th style="width:120px;">Laatst gew.</th>
+									<th style="width:130px;">Actie</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -908,12 +912,13 @@ class MCM_Admin_Page {
 									<td><code><?php echo esc_html( $f['relpath'] ); ?></code></td>
 									<td><?php echo ! empty( $f['is_dir'] ) ? 'map' : 'bestand'; ?></td>
 									<td><?php echo $f['mtime'] ? esc_html( wp_date( 'd-m-Y', (int) $f['mtime'] ) ) : '—'; ?></td>
+									<td><?php $this->render_ignore_form( 'anomaly', $f ); ?></td>
 								</tr>
 								<?php endforeach; ?>
 							</tbody>
 						</table>
 						<p class="description" style="margin-top:8px;">
-							Herken je een item als legitiem? Voeg het toe via de filter <code>mcm_anomaly_root_whitelist</code> of <code>mcm_anomaly_wpcontent_whitelist</code> (lowercase naam) om de melding permanent stil te zetten.
+							Herken je een item als legitiem? Voeg het toe via de filter <code>mcm_anomaly_root_whitelist</code> of <code>mcm_anomaly_wpcontent_whitelist</code> (lowercase naam) om de melding sitebreed stil te zetten, of markeer 'm hierboven per item als veilig.
 						</p>
 						<?php endif; ?>
 						<?php
@@ -922,6 +927,7 @@ class MCM_Admin_Page {
 						<p><em>Nog geen scan uitgevoerd.</em></p>
 						<?php
 					}
+					$this->render_ignored_list( 'anomaly' );
 					?>
 					<p>
 						<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . MCM_Anomaly_Scanner::ACTION_MANUAL_SCAN ), MCM_Anomaly_Scanner::ACTION_MANUAL_SCAN ) ); ?>"
@@ -2198,6 +2204,80 @@ class MCM_Admin_Page {
 			esc_attr( $color ),
 			esc_html( strtoupper( $severity ) )
 		);
+	}
+
+	/**
+	 * "Markeer als veilig"-knop voor één bevindingsrij (File Exposure
+	 * Scanner / Anomaly Scanner). Zie class-finding-ignore.php.
+	 *
+	 * @param string $source  'exposure' of 'anomaly'.
+	 * @param array  $finding Eén finding-record (moet 'path' bevatten).
+	 */
+	private function render_ignore_form( $source, array $finding ) {
+		if ( ! class_exists( 'MCM_Finding_Ignore' ) || empty( $finding['path'] ) ) {
+			return;
+		}
+		?>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:0;">
+			<?php wp_nonce_field( MCM_Finding_Ignore::ACTION_IGNORE ); ?>
+			<input type="hidden" name="action" value="<?php echo esc_attr( MCM_Finding_Ignore::ACTION_IGNORE ); ?>">
+			<input type="hidden" name="mcm_source" value="<?php echo esc_attr( $source ); ?>">
+			<input type="hidden" name="mcm_path" value="<?php echo esc_attr( $finding['path'] ); ?>">
+			<input type="hidden" name="mcm_relpath" value="<?php echo esc_attr( isset( $finding['relpath'] ) ? $finding['relpath'] : '' ); ?>">
+			<input type="hidden" name="mcm_reason" value="<?php echo esc_attr( isset( $finding['reason'] ) ? $finding['reason'] : '' ); ?>">
+			<button type="submit" class="button button-small">Markeer als veilig</button>
+		</form>
+		<?php
+	}
+
+	/**
+	 * Lijst met als-veilig-gemarkeerde bevindingen voor één bron, met een
+	 * knop om de markering weer in te trekken.
+	 *
+	 * @param string $source 'exposure' of 'anomaly'.
+	 */
+	private function render_ignored_list( $source ) {
+		if ( ! class_exists( 'MCM_Finding_Ignore' ) ) {
+			return;
+		}
+		$ignored = MCM_Finding_Ignore::all( $source );
+		if ( empty( $ignored ) ) {
+			return;
+		}
+		?>
+		<details style="margin-top:12px;">
+			<summary style="cursor:pointer; color:#646970;">Genegeerde bevindingen (<?php echo (int) count( $ignored ); ?>)</summary>
+			<table class="widefat striped" style="margin-top:8px;">
+				<thead>
+					<tr>
+						<th>Reden (op moment van markeren)</th>
+						<th>Pad (relatief)</th>
+						<th style="width:120px;">Gemarkeerd door</th>
+						<th style="width:110px;">Op</th>
+						<th style="width:110px;">Actie</th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ( $ignored as $key => $entry ) : ?>
+					<tr>
+						<td><?php echo esc_html( isset( $entry['reason'] ) ? $entry['reason'] : '—' ); ?></td>
+						<td><code><?php echo esc_html( isset( $entry['relpath'] ) ? $entry['relpath'] : '—' ); ?></code></td>
+						<td><?php echo esc_html( isset( $entry['by'] ) ? $entry['by'] : '—' ); ?></td>
+						<td><?php echo isset( $entry['at'] ) ? esc_html( wp_date( 'd-m-Y', (int) $entry['at'] ) ) : '—'; ?></td>
+						<td>
+							<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:0;">
+								<?php wp_nonce_field( MCM_Finding_Ignore::ACTION_UNIGNORE ); ?>
+								<input type="hidden" name="action" value="<?php echo esc_attr( MCM_Finding_Ignore::ACTION_UNIGNORE ); ?>">
+								<input type="hidden" name="mcm_key" value="<?php echo esc_attr( $key ); ?>">
+								<button type="submit" class="button button-small">Herstel</button>
+							</form>
+						</td>
+					</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+		</details>
+		<?php
 	}
 
 	/**

@@ -3,7 +3,7 @@
  * Plugin Name: MCM Security Hardener
  * Plugin URI:  https://github.com/MarcoMCM/mcm-security-hardener
  * Description: Schrijft security-hardening regels naar wp-config.php en .htaccess, gebaseerd op SecuPress Pro-niveau instellingen.
- * Version: 1.24.0
+ * Version: 1.25.0
  * Author: MCM Websites
  * Author URI: https://mcmwebsites.nl
  * Update URI: https://github.com/MarcoMCM/mcm-security-hardener
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MCM_SECURITY_VERSION', '1.24.0' );
+define( 'MCM_SECURITY_VERSION', '1.25.0' );
 define( 'MCM_SECURITY_FILE', __FILE__ );
 define( 'MCM_SECURITY_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -31,6 +31,7 @@ $mcm_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdat
 $mcm_update_checker->setBranch( 'main' );
 
 require_once MCM_SECURITY_DIR . 'includes/class-notifier.php';
+require_once MCM_SECURITY_DIR . 'includes/class-finding-ignore.php';
 require_once MCM_SECURITY_DIR . 'includes/class-staging-detector.php';
 require_once MCM_SECURITY_DIR . 'includes/class-basic-auth.php';
 MCM_Basic_Auth::init();
@@ -74,6 +75,7 @@ final class MCM_Security_Hardener {
 		register_activation_hook( MCM_SECURITY_FILE, [ $this, 'activate' ] );
 		register_deactivation_hook( MCM_SECURITY_FILE, [ $this, 'deactivate' ] );
 
+		new MCM_Finding_Ignore();
 		new MCM_Login_URL_Manager();
 		new MCM_Lockdown_Manager();
 		new MCM_Runtime_Security();

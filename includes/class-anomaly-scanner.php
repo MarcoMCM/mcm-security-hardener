@@ -289,6 +289,12 @@ class MCM_Anomaly_Scanner {
 		// hook-gebaseerde monitor niets van merkt.
 		$findings = array_merge( $findings, self::scan_snippet_baseline() );
 
+		// Als "veilig" gemarkeerde bevindingen (MCM_Finding_Ignore) blijven
+		// permanent buiten beeld, ook uit de mail — zie class-finding-ignore.php.
+		if ( class_exists( 'MCM_Finding_Ignore' ) ) {
+			$findings = MCM_Finding_Ignore::filter( 'anomaly', $findings );
+		}
+
 		return $findings;
 	}
 
