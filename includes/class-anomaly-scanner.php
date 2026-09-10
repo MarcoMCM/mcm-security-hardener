@@ -47,6 +47,16 @@
  *   bewust geïnstalleerde nieuwe plugin wordt dus één keer gemeld ter
  *   controle en verdwijnt daarna vanzelf uit de bevindingen.
  *
+ * Baseline-diff voor WPCode-snippets (sinds 1.24.0):
+ *   Zelfde hack, later diezelfde dag ontdekt: de aanvaller verstopte twee
+ *   webshells als WPCode/Insert Headers and Footers-snippets in de
+ *   database (wp_posts), niet als bestanden — dus onzichtbaar voor elke
+ *   bestandsscan hierboven. MCM_Snippet_Monitor vangt dit real-time via
+ *   WordPress' post-hooks, maar mist een aanvaller die rechtstreeks SQL
+ *   uitvoert. Deze baseline (dezelfde optie, sleutel 'wpcode_php')
+ *   vergelijkt daarom de actuele set PHP-type snippet-ID's in de database
+ *   met de vorige scan, ongeacht hoe ze zijn ontstaan.
+ *
  * Bijstellen zonder code te wijzigen:
  *   - filter 'mcm_anomaly_root_whitelist'       (array van namen, lowercase)
  *   - filter 'mcm_anomaly_wpcontent_whitelist'  (array van namen, lowercase)
@@ -270,6 +280,78 @@ class MCM_Anomaly_Scanner {
 			// dieper dan hierboven, via baseline-diff i.p.v. whitelist.
 			$findings = array_merge( $findings, self::scan_plugin_baseline( 'plugins', $wpc . '/plugins', $abspath ) );
 			$findings = array_merge( $findings, self::scan_plugin_baseline( 'mu-plugins', $wpc . '/mu-plugins', $abspath ) );
+		}
+
+		// 4) WPCode/Insert Headers and Footers PHP-snippets in de database.
+		// Zie MCM_Snippet_Monitor voor de real-time tegenhanger; deze
+		// database-baseline vangt ook payloads die buiten WordPress' eigen
+		// post-hooks om zijn geschreven (bv. rechtstreekse SQL), waar de
+		// hook-gebaseerde monitor niets van merkt.
+		$findings = array_merge( $findings, self::scan_snippet_baseline() );
+
+		return $findings;
+	}
+
+	/**
+	 * Vergelijkt de huidige set PHP-type WPCode-snippet-ID's met de vórige
+	 * scan en meldt alleen wat is bijgekomen. No-op als de plugin niet
+	 * geïnstalleerd is (post type/taxonomie bestaan dan niet).
+	 *
+	 * @return array<int,array{type:string,reason:string,severity:string,path:string,relpath:string,is_dir:bool,size:int,mtime:int}>
+	 */
+	private static function scan_snippet_baseline() {
+		if ( ! post_type_exists( 'wpcode' ) || ! taxonomy_exists( 'wpcode_type' ) ) {
+			return [];
+		}
+
+		$ids = get_posts( [
+			'post_type'      => 'wpcode',
+			'post_status'    => 'any',
+			'posts_per_page' => -1,
+			'fields'         => 'ids',
+			'tax_query'      => [
+				[
+					'taxonomy' => 'wpcode_type',
+					'field'    => 'slug',
+					'terms'    => 'php',
+				],
+			],
+		] );
+		$ids = array_map( 'strval', (array) $ids );
+		sort( $ids );
+
+		$baselines = get_option( self::OPTION_PLUGIN_BASELINE, [] );
+		if ( ! is_array( $baselines ) ) {
+			$baselines = [];
+		}
+		$previous = isset( $baselines['wpcode_php'] ) ? (array) $baselines['wpcode_php'] : null;
+
+		$baselines['wpcode_php'] = $ids;
+		update_option( self::OPTION_PLUGIN_BASELINE, $baselines );
+
+		// Eerste scan ooit: alleen baseline vastleggen, niets melden.
+		if ( null === $previous ) {
+			return [];
+		}
+
+		$new_ids = array_diff( $ids, $previous );
+		if ( empty( $new_ids ) ) {
+			return [];
+		}
+
+		$findings = [];
+		foreach ( $new_ids as $id ) {
+			$post = get_post( (int) $id );
+			$findings[] = [
+				'type'     => 'new_php_snippet',
+				'reason'   => 'Nieuwe PHP-code-snippet (WPCode) sinds vorige scan — draait met volledige PHP-rechten op de site',
+				'severity' => 'high',
+				'path'     => admin_url( 'admin.php?page=wpcode-snippet-manager&edit=' . $id ),
+				'relpath'  => 'WPCode-snippet: ' . ( $post ? $post->post_title : '#' . $id ),
+				'is_dir'   => false,
+				'size'     => $post ? strlen( (string) $post->post_content ) : 0,
+				'mtime'    => $post ? strtotime( $post->post_modified ) : 0,
+			];
 		}
 
 		return $findings;

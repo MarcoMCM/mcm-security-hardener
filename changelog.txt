@@ -1,5 +1,28 @@
 MCM Security Hardener — Changelog
 
+= 1.24.0 (2026-09-10) =
+* Nieuw: detectie van webshells verstopt als code-snippet in de database
+  (class-snippet-monitor.php + uitbreiding class-anomaly-scanner.php)
+  - Aanleiding: dezelfde tessaswinkels.com-hack. Naast de bestand-backdoors
+    uit 1.23.0 bleken er ook twee webshells verstopt te zitten als WPCode/
+    Insert Headers and Footers-snippets in de database (wp_posts) — een
+    file-manager en een "NezukaBot"-uploader. Bestandsscans (checksums,
+    Anomaly Scanner) zien dit sowieso nooit, want er staat niets op schijf.
+    Eén van de twee stond zelfs als 'draft' — nooit gepubliceerd, dus ook
+    via WPCode's eigen actief/inactief-status onzichtbaar als risico.
+  - Nieuwe class-snippet-monitor.php: real-time mail bij elke nieuwe of
+    inhoudelijk gewijzigde WPCode-snippet (hook save_post_wpcode),
+    ongeacht publish/draft-status. MCM-eigenaars uitgezonderd (normaal
+    onderhoudswerk); een aanvallersscript is nooit als eigenaar
+    geauthenticeerd, dus dat verzwakt niets.
+  - Anomaly Scanner (class-anomaly-scanner.php) kreeg er een vierde
+    baseline-diff bij: de actuele set PHP-type WPCode-snippets in de
+    database, wekelijks vergeleken met de vorige scan. Dit vangt ook een
+    aanvaller die rechtstreeks SQL uitvoert — buiten WordPress' hooks om,
+    waar de real-time monitor niets van merkt.
+  - No-op op elke site zonder WPCode/Insert Headers and Footers (post
+    type/taxonomie bestaan dan simpelweg niet).
+
 = 1.23.0 (2026-09-09) =
 * Nieuw: real-time mail bij een nieuw administrator-account (class-new-admin-alert.php)
   - Aanleiding: bij de tessaswinkels.com-hack (sept 2026) creëerde een
