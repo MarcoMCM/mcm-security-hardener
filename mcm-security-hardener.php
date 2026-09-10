@@ -3,7 +3,7 @@
  * Plugin Name: MCM Security Hardener
  * Plugin URI:  https://github.com/MarcoMCM/mcm-security-hardener
  * Description: Schrijft security-hardening regels naar wp-config.php en .htaccess, gebaseerd op SecuPress Pro-niveau instellingen.
- * Version: 1.25.0
+ * Version: 1.26.0
  * Author: MCM Websites
  * Author URI: https://mcmwebsites.nl
  * Update URI: https://github.com/MarcoMCM/mcm-security-hardener
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MCM_SECURITY_VERSION', '1.25.0' );
+define( 'MCM_SECURITY_VERSION', '1.26.0' );
 define( 'MCM_SECURITY_FILE', __FILE__ );
 define( 'MCM_SECURITY_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -52,6 +52,7 @@ require_once MCM_SECURITY_DIR . 'includes/class-backend-access.php';
 require_once MCM_SECURITY_DIR . 'includes/class-file-exposure-scanner.php';
 require_once MCM_SECURITY_DIR . 'includes/class-anomaly-scanner.php';
 require_once MCM_SECURITY_DIR . 'includes/class-snippet-monitor.php';
+require_once MCM_SECURITY_DIR . 'includes/class-core-integrity-scanner.php';
 require_once MCM_SECURITY_DIR . 'includes/class-admin-bar.php';
 require_once MCM_SECURITY_DIR . 'includes/class-php-error-watcher.php';
 require_once MCM_SECURITY_DIR . 'includes/class-profiles.php';
@@ -85,6 +86,7 @@ final class MCM_Security_Hardener {
 		new MCM_File_Exposure_Scanner();
 		new MCM_Anomaly_Scanner();
 		new MCM_Snippet_Monitor();
+		new MCM_Core_Integrity_Scanner();
 		new MCM_Admin_Bar();
 		new MCM_PHP_Error_Watcher();
 		new MCM_DB_Prefix_Manager();
@@ -191,6 +193,9 @@ final class MCM_Security_Hardener {
 
 			// Anomaly scanner (vreemde bestanden/mappen in root + wp-content)
 			'anomaly_scanner_enabled'          => true,
+
+			// Core integrity scanner (checksum-vergelijking kernbestanden)
+			'core_integrity_enabled'           => true,
 
 			// PHP error watcher (debug.log monitor)
 			'php_error_watcher_enabled'                  => true,

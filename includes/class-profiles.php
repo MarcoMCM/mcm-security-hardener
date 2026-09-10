@@ -79,6 +79,8 @@ class MCM_Profiles {
 			'generic_login_errors'          => true,
 			// anomaly scanner (vreemde bestanden/mappen)
 			'anomaly_scanner_enabled'       => true,
+			// core integrity scanner (checksum-vergelijking kernbestanden)
+			'core_integrity_enabled'        => true,
 			// php error watcher
 			'php_error_watcher_enabled'     => true,
 		];
@@ -237,6 +239,8 @@ class MCM_Profiles {
 			'generic_login_errors',
 			// anomaly scanner
 			'anomaly_scanner_enabled',
+			// core integrity scanner
+			'core_integrity_enabled',
 			// php error watcher
 			'php_error_watcher_enabled',
 		];

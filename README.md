@@ -32,6 +32,7 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | **Anomaly Scanner** | Wekelijkse scan van root + `wp-content` (top-level) op onbekende bestanden/mappen via whitelist, plús baseline-diff (geen whitelist — verschilt per site) voor `wp-content/plugins`, `wp-content/mu-plugins` én PHP-type WPCode-snippets in de database. Severity-tiers (HIGH = los `.php`/shell, nieuw mu-plugin-item of nieuwe PHP-snippet, MEDIUM = onbekende root-map of nieuw item in `plugins/`, LOW = info). Mailt alleen bij HIGH/MEDIUM, detectie-only |
 | **New Admin Alert** | Real-time mail zodra een account de rol Administrator krijgt (hook `set_user_role`) — ongeacht of dat via het registratieformulier, wp-admin, wp-cli of een script gaat dat WordPress' eigen user-API gebruikt. MCM-eigenaars uitgezonderd. Vangt geen rechtstreekse database-writes buiten die API om |
 | **Snippet Monitor** | Real-time mail bij elke nieuwe of gewijzigde WPCode/Insert Headers and Footers-snippet (hook `save_post_wpcode`), ongeacht publish/draft-status — code-snippets zijn onzichtbaar voor bestandsscans, want ze staan in de database. MCM-eigenaars uitgezonderd. No-op zonder die plugin |
+| **Core Integrity Scanner** | Wekelijkse checksum-vergelijking van élk WordPress-kernbestand (root, `wp-admin/`, `wp-includes/`) tegen de officiële versie van WordPress.org — zelfde principe als `wp core verify-checksums`, automatisch. Elke afwijking of ontbrekend bestand is HIGH, direct gemaild. Detectie-only; de mail bevat het herstel-commando |
 | **PHP Error Watcher** | Uurlijkse monitor van `debug.log`; mailt direct bij fatal/parse. Warning/deprecated tellen alleen mee voor de drempel als ze uit eigen code komen (core/systeem = ruis, alarmeert niet). Extra gevoelig 7 dagen na een PHP-versie-wissel |
 | **Toolbar-snelkoppeling** | "MCM Security" in de WP-adminbar (front + admin, alleen admins); kleurt rood als de anomalie-scan uit staat, met 1-klik aan/uit-toggle |
 | **User Audit** | Lijst van alle users met rol Administrator/Editor/Author/Contributor met 1-klik downgrade naar de MCM Klant-rol (mits Site Optimizer aanwezig) of naar Subscriber |
@@ -138,6 +139,7 @@ mcm-security-hardener/
 │   ├── class-user-enumeration.php       Gebruikersnamen afschermen (author/REST/oEmbed/sitemap/loginfout)
 │   ├── class-anomaly-scanner.php      Scan op vreemde bestanden/mappen (whitelist + plugin-/snippet-baseline-diff)
 │   ├── class-snippet-monitor.php      Real-time mail bij nieuwe/gewijzigde WPCode-snippet
+│   ├── class-core-integrity-scanner.php  Checksum-vergelijking kernbestanden vs. WordPress.org
 │   ├── class-admin-bar.php            Toolbar-snelkoppeling + scan aan/uit-toggle
 │   ├── class-php-error-watcher.php    debug.log-monitor met herkomst-filtering
 │   ├── class-profiles.php             Basic/Standard/Strict/Staging-profielen

@@ -767,6 +767,12 @@ class MCM_Admin_Page {
 					$last = MCM_File_Exposure_Scanner::get_last_results();
 					if ( $last ) {
 						$findings = isset( $last['findings'] ) && is_array( $last['findings'] ) ? $last['findings'] : [];
+						// Ook hier filteren, niet alleen tijdens scan(): anders
+						// blijft een net gemarkeerd item nog zichtbaar tot de
+						// volgende cron/handmatige scan de opgeslagen resultaten ververst.
+						if ( class_exists( 'MCM_Finding_Ignore' ) ) {
+							$findings = MCM_Finding_Ignore::filter( 'exposure', $findings );
+						}
 						$when     = isset( $last['timestamp'] ) ? wp_date( 'd-m-Y H:i', (int) $last['timestamp'] ) : '—';
 						?>
 						<p>
@@ -877,6 +883,11 @@ class MCM_Admin_Page {
 					$a_last = MCM_Anomaly_Scanner::get_last_results();
 					if ( $a_last ) {
 						$a_findings = isset( $a_last['findings'] ) && is_array( $a_last['findings'] ) ? $a_last['findings'] : [];
+						// Zie toelichting bij de exposure-tabel hierboven: ook hier
+						// filteren zodat een net gemarkeerd item meteen verdwijnt.
+						if ( class_exists( 'MCM_Finding_Ignore' ) ) {
+							$a_findings = MCM_Finding_Ignore::filter( 'anomaly', $a_findings );
+						}
 						$a_when     = isset( $a_last['timestamp'] ) ? wp_date( 'd-m-Y H:i', (int) $a_last['timestamp'] ) : '—';
 						?>
 						<p>
@@ -931,6 +942,79 @@ class MCM_Admin_Page {
 					?>
 					<p>
 						<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . MCM_Anomaly_Scanner::ACTION_MANUAL_SCAN ), MCM_Anomaly_Scanner::ACTION_MANUAL_SCAN ) ); ?>"
+							class="button button-secondary">
+							Nu scannen
+						</a>
+					</p>
+				</div>
+
+				<!-- CORE INTEGRITY SCANNER -->
+				<div class="mcm-section">
+					<h2>Kernbestand-integriteit</h2>
+					<p class="description">
+						Vergelijkt wekelijks élk WordPress-kernbestand (root, <code>wp-admin/</code>, <code>wp-includes/</code>) met de officiële checksums van WordPress.org voor de geïnstalleerde versie &mdash; hetzelfde als <code>wp core verify-checksums</code>, maar automatisch. Een kernbestand hoort nooit te wijzigen buiten een WordPress-update om; elke afwijking is HIGH en wordt direct gemaild.
+					</p>
+					<p class="description">
+						<strong>Geen automatisch herstel</strong> &mdash; alleen melden. Herstellen doe je via SSH: <code>wp core download --force --skip-content</code>.
+					</p>
+					<table class="form-table">
+						<?php
+						$this->render_toggle( 'core_integrity_enabled', 'Wekelijkse scan inschakelen', 'Plant een wp-cron-job die wekelijks alle kernbestanden checkt tegen de officiële checksums van WordPress.org. Bij elke afwijking krijg je een mail.', $settings );
+						?>
+					</table>
+					<?php
+					$c_last = MCM_Core_Integrity_Scanner::get_last_results();
+					if ( $c_last ) {
+						$c_findings = isset( $c_last['findings'] ) && is_array( $c_last['findings'] ) ? $c_last['findings'] : [];
+						if ( class_exists( 'MCM_Finding_Ignore' ) ) {
+							$c_findings = MCM_Finding_Ignore::filter( 'core_integrity', $c_findings );
+						}
+						$c_when  = isset( $c_last['timestamp'] ) ? wp_date( 'd-m-Y H:i', (int) $c_last['timestamp'] ) : '—';
+						$c_error = isset( $c_last['error'] ) ? $c_last['error'] : '';
+						?>
+						<p>
+							<strong>Laatste scan:</strong> <?php echo esc_html( $c_when ); ?>
+							&mdash;
+							<?php if ( $c_error ) : ?>
+								<span style="color:#bd8600;">&#9888; Kon niet controleren: <?php echo esc_html( $c_error ); ?></span>
+							<?php elseif ( empty( $c_findings ) ) : ?>
+								<span style="color:#1e7e34;">&#10003; Alle kernbestanden kloppen.</span>
+							<?php else : ?>
+								<span style="color:#b32d2e;">&#9888; <?php echo (int) count( $c_findings ); ?> afwijking(en)</span>
+							<?php endif; ?>
+						</p>
+						<?php if ( ! empty( $c_findings ) ) : ?>
+						<table class="widefat striped" style="margin-top:8px;">
+							<thead>
+								<tr>
+									<th>Reden</th>
+									<th>Pad (relatief)</th>
+									<th style="width:120px;">Laatst gew.</th>
+									<th style="width:130px;">Actie</th>
+								</tr>
+							</thead>
+							<tbody>
+								<?php foreach ( $c_findings as $f ) : ?>
+								<tr>
+									<td><strong style="color:#b32d2e;"><?php echo esc_html( $f['reason'] ); ?></strong></td>
+									<td><code><?php echo esc_html( $f['relpath'] ); ?></code></td>
+									<td><?php echo $f['mtime'] ? esc_html( wp_date( 'd-m-Y', (int) $f['mtime'] ) ) : '—'; ?></td>
+									<td><?php $this->render_ignore_form( 'core_integrity', $f ); ?></td>
+								</tr>
+								<?php endforeach; ?>
+							</tbody>
+						</table>
+						<?php endif; ?>
+						<?php
+					} else {
+						?>
+						<p><em>Nog geen scan uitgevoerd.</em></p>
+						<?php
+					}
+					$this->render_ignored_list( 'core_integrity' );
+					?>
+					<p>
+						<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . MCM_Core_Integrity_Scanner::ACTION_MANUAL_SCAN ), MCM_Core_Integrity_Scanner::ACTION_MANUAL_SCAN ) ); ?>"
 							class="button button-secondary">
 							Nu scannen
 						</a>

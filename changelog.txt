@@ -1,5 +1,29 @@
 MCM Security Hardener — Changelog
 
+= 1.26.0 (2026-09-10) =
+* Nieuw: Core Integrity Scanner (class-core-integrity-scanner.php)
+  - Aanleiding: dezelfde tessaswinkels.com-hack. `index.php` en
+    `wp-blog-header.php` waren geïnfecteerd, maar niets in de plugin
+    controleerde kernbestanden tegen de officiële WordPress-versie. Xel's
+    eigen scan vindt zoiets ook, maar dan staat de site meteen op slot —
+    deze module is bedoeld om er eerder bij te zijn.
+  - Wekelijkse cron + handmatige "Nu scannen"-knop, net als de andere
+    scanners. Haalt de officiële checksums op bij
+    api.wordpress.org/core/checksums (dezelfde bron als
+    `wp core verify-checksums`) en vergelijkt élk kernbestand in root,
+    wp-admin/ en wp-includes/. Elke afwijking of elk ontbrekend bestand is
+    HIGH en wordt direct gemaild. wp-content zit hier bewust niet in —
+    dat dekken de Anomaly Scanner en Snippet Monitor al.
+  - Detectie only, zoals de rest van de plugin: geen automatisch herstel.
+    Mail bevat het herstel-commando (`wp core download --force
+    --skip-content`).
+* Fix: "Markeer als veilig" liet het item nog zichtbaar tot de volgende
+  scan (class-admin-page.php)
+  - De admin-tabel toonde de laatst OPGESLAGEN scan-resultaten; het
+    negeren werd wel correct vastgelegd, maar filterde alleen bij een
+    nieuwe scan() — niet bij het tonen van de al opgeslagen resultaten.
+    Filtert nu ook bij het renderen, dus een markering werkt meteen.
+
 = 1.25.0 (2026-09-10) =
 * Nieuw: "Markeer als veilig" per bevinding (class-finding-ignore.php)
   - Aanleiding: na het opschonen van tessaswinkels.com bleven een paar
