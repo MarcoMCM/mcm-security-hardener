@@ -131,10 +131,12 @@ class MCM_Finding_Ignore {
 		}
 		check_admin_referer( self::ACTION_IGNORE );
 
-		$source  = isset( $_POST['mcm_source'] ) ? sanitize_key( wp_unslash( $_POST['mcm_source'] ) ) : '';
-		$path    = isset( $_POST['mcm_path'] ) ? wp_unslash( $_POST['mcm_path'] ) : '';
-		$relpath = isset( $_POST['mcm_relpath'] ) ? sanitize_text_field( wp_unslash( $_POST['mcm_relpath'] ) ) : '';
-		$reason  = isset( $_POST['mcm_reason'] ) ? sanitize_text_field( wp_unslash( $_POST['mcm_reason'] ) ) : '';
+		// $_REQUEST, niet $_POST: de knop is een GET-link (zie
+		// class-admin-page.php::render_ignore_form voor waarom).
+		$source  = isset( $_REQUEST['mcm_source'] ) ? sanitize_key( wp_unslash( $_REQUEST['mcm_source'] ) ) : '';
+		$path    = isset( $_REQUEST['mcm_path'] ) ? wp_unslash( $_REQUEST['mcm_path'] ) : '';
+		$relpath = isset( $_REQUEST['mcm_relpath'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['mcm_relpath'] ) ) : '';
+		$reason  = isset( $_REQUEST['mcm_reason'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['mcm_reason'] ) ) : '';
 
 		if ( '' !== $source && '' !== $path ) {
 			self::add( $source, $path, $relpath, $reason );
@@ -157,7 +159,7 @@ class MCM_Finding_Ignore {
 		}
 		check_admin_referer( self::ACTION_UNIGNORE );
 
-		$key = isset( $_POST['mcm_key'] ) ? sanitize_text_field( wp_unslash( $_POST['mcm_key'] ) ) : '';
+		$key = isset( $_REQUEST['mcm_key'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['mcm_key'] ) ) : '';
 		if ( $key ) {
 			self::remove( $key );
 		}

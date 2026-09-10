@@ -2292,25 +2292,39 @@ class MCM_Admin_Page {
 
 	/**
 	 * "Markeer als veilig"-knop voor één bevindingsrij (File Exposure
-	 * Scanner / Anomaly Scanner). Zie class-finding-ignore.php.
+	 * Scanner / Anomaly Scanner / Core Integrity Scanner). Zie
+	 * class-finding-ignore.php.
 	 *
-	 * @param string $source  'exposure' of 'anomaly'.
+	 * GET-link met nonce, geen <form> — deze rijen worden gerenderd
+	 * BINNEN de grote instellingen-<form> van de hoofdpagina (zie
+	 * render_page(), opent rond regel 660). Een geneste <form> is
+	 * ongeldige HTML: de browser negeert 'm of stuurt de klik naar de
+	 * buitenste form, en de knop lijkt dan niets te doen. Zelfde patroon
+	 * als de bestaande "Nu scannen"- en downgrade-knoppen elders op deze
+	 * pagina.
+	 *
+	 * @param string $source  'exposure', 'anomaly' of 'core_integrity'.
 	 * @param array  $finding Eén finding-record (moet 'path' bevatten).
 	 */
 	private function render_ignore_form( $source, array $finding ) {
 		if ( ! class_exists( 'MCM_Finding_Ignore' ) || empty( $finding['path'] ) ) {
 			return;
 		}
+		$url = wp_nonce_url(
+			add_query_arg(
+				[
+					'action'      => MCM_Finding_Ignore::ACTION_IGNORE,
+					'mcm_source'  => rawurlencode( $source ),
+					'mcm_path'    => rawurlencode( $finding['path'] ),
+					'mcm_relpath' => rawurlencode( isset( $finding['relpath'] ) ? $finding['relpath'] : '' ),
+					'mcm_reason'  => rawurlencode( isset( $finding['reason'] ) ? $finding['reason'] : '' ),
+				],
+				admin_url( 'admin-post.php' )
+			),
+			MCM_Finding_Ignore::ACTION_IGNORE
+		);
 		?>
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:0;">
-			<?php wp_nonce_field( MCM_Finding_Ignore::ACTION_IGNORE ); ?>
-			<input type="hidden" name="action" value="<?php echo esc_attr( MCM_Finding_Ignore::ACTION_IGNORE ); ?>">
-			<input type="hidden" name="mcm_source" value="<?php echo esc_attr( $source ); ?>">
-			<input type="hidden" name="mcm_path" value="<?php echo esc_attr( $finding['path'] ); ?>">
-			<input type="hidden" name="mcm_relpath" value="<?php echo esc_attr( isset( $finding['relpath'] ) ? $finding['relpath'] : '' ); ?>">
-			<input type="hidden" name="mcm_reason" value="<?php echo esc_attr( isset( $finding['reason'] ) ? $finding['reason'] : '' ); ?>">
-			<button type="submit" class="button button-small">Markeer als veilig</button>
-		</form>
+		<a href="<?php echo esc_url( $url ); ?>" class="button button-small">Markeer als veilig</a>
 		<?php
 	}
 
@@ -2349,12 +2363,19 @@ class MCM_Admin_Page {
 						<td><?php echo esc_html( isset( $entry['by'] ) ? $entry['by'] : '—' ); ?></td>
 						<td><?php echo isset( $entry['at'] ) ? esc_html( wp_date( 'd-m-Y', (int) $entry['at'] ) ) : '—'; ?></td>
 						<td>
-							<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:0;">
-								<?php wp_nonce_field( MCM_Finding_Ignore::ACTION_UNIGNORE ); ?>
-								<input type="hidden" name="action" value="<?php echo esc_attr( MCM_Finding_Ignore::ACTION_UNIGNORE ); ?>">
-								<input type="hidden" name="mcm_key" value="<?php echo esc_attr( $key ); ?>">
-								<button type="submit" class="button button-small">Herstel</button>
-							</form>
+							<?php
+							$unignore_url = wp_nonce_url(
+								add_query_arg(
+									[
+										'action'  => MCM_Finding_Ignore::ACTION_UNIGNORE,
+										'mcm_key' => $key,
+									],
+									admin_url( 'admin-post.php' )
+								),
+								MCM_Finding_Ignore::ACTION_UNIGNORE
+							);
+							?>
+							<a href="<?php echo esc_url( $unignore_url ); ?>" class="button button-small">Herstel</a>
 						</td>
 					</tr>
 					<?php endforeach; ?>

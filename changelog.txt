@@ -1,5 +1,18 @@
 MCM Security Hardener — Changelog
 
+= 1.26.1 (2026-09-10) =
+* Fix: "Markeer als veilig" en "Herstel" deden echt niets (class-admin-page.php)
+  - De vorige fix (1.26.0) loste alleen de weergave op. De daadwerkelijke
+    oorzaak: de knoppen waren <form>-elementen, genest in de grote
+    instellingen-<form> die de hele pagina omvat. Een geneste <form> is
+    ongeldige HTML — de browser negeert 'm, dus de klik deed niets.
+  - Vervangen door GET-links met nonce (`wp_nonce_url()` +
+    `add_query_arg()`), hetzelfde patroon als de bestaande "Nu scannen"-
+    en gebruiker-downgrade-knoppen elders op de pagina, die om precies
+    deze reden nooit een <form> gebruiken.
+  - Opslag zelf werkte al correct (los geverifieerd) — alleen de knop was
+    kapot.
+
 = 1.26.0 (2026-09-10) =
 * Nieuw: Core Integrity Scanner (class-core-integrity-scanner.php)
   - Aanleiding: dezelfde tessaswinkels.com-hack. `index.php` en
