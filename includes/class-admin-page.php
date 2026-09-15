@@ -735,6 +735,33 @@ class MCM_Admin_Page {
 						</tr>
 						<?php endif; ?>
 						<?php endif; ?>
+						<?php $other_groups = MCM_DB_Prefix_Manager::find_other_table_groups(); ?>
+						<?php if ( ! empty( $other_groups ) ) : ?>
+						<tr>
+							<th scope="row">Andere tabel-sets in deze database</th>
+							<td>
+								<span style="color: #b32d2e;">&#9888; <?php echo count( $other_groups ); ?> los van de actieve site</span>
+								<table class="widefat" style="margin-top: 8px; max-width: 480px;">
+									<thead>
+										<tr><th>Prefix</th><th>Aantal tabellen</th></tr>
+									</thead>
+									<tbody>
+										<?php foreach ( $other_groups as $group ) : ?>
+										<tr>
+											<td><code><?php echo esc_html( $group['prefix'] ); ?></code></td>
+											<td><?php echo (int) $group['table_count']; ?></td>
+										</tr>
+										<?php endforeach; ?>
+									</tbody>
+								</table>
+								<p class="description">
+									Volledige WordPress-tabelsets die niet bij de actieve prefix (<code><?php echo esc_html( $wpdb->prefix ); ?></code>) horen —
+									typisch een oude migratie of test-import die is blijven staan. Puur informatief: er wordt niets aangepast of verwijderd.
+									Controleer handmatig of deze data nog nodig is voordat je 'm laat opruimen.
+								</p>
+							</td>
+						</tr>
+						<?php endif; ?>
 					</table>
 				</div>
 				<?php endif; ?>

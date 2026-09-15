@@ -71,7 +71,7 @@ class MCM_WPConfig_Manager {
 	 * production: a define() line getting truncated mid-string so PHP falls
 	 * out of PHP mode and starts echoing the rest of the file as HTML.
 	 */
-	private static function check_syntax( $content ) {
+	public static function check_syntax( $content ) {
 		$php_binary = defined( 'PHP_BINARY' ) && PHP_BINARY ? PHP_BINARY : 'php';
 
 		if ( function_exists( 'exec' ) && ! in_array( 'exec', array_map( 'trim', explode( ',', (string) ini_get( 'disable_functions' ) ) ), true ) ) {

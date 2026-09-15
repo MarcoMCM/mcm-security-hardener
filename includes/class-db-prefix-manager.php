@@ -37,6 +37,71 @@ class MCM_DB_Prefix_Manager {
 	}
 
 	/**
+	 * Zoekt naar andere volledige WP-tabelsets in dezelfde database die niet
+	 * bij de actieve prefix horen — typisch overgebleven van een oude
+	 * migratie of test-import. Puur informatief, verandert niets.
+	 *
+	 * Groepeert alle tabellen op hun mogelijke prefix (alles vóór een
+	 * herkenbare WP-kern-tabelnaam als "options", "posts", "users", etc.)
+	 * en houdt alleen groepen over die er als een echte, volledige WP-set
+	 * uitzien (zowel een options- als een users/posts-tabel) en niet de
+	 * huidige, actieve prefix zijn.
+	 *
+	 * @return array Lijst van [ 'prefix' => string, 'table_count' => int, 'tables' => string[] ]
+	 */
+	public static function find_other_table_groups() {
+		global $wpdb;
+
+		$core_suffixes = [
+			'options', 'posts', 'postmeta', 'users', 'usermeta',
+			'comments', 'commentmeta', 'terms', 'term_taxonomy',
+			'term_relationships', 'termmeta', 'links',
+		];
+
+		$tables = $wpdb->get_col( 'SHOW TABLES' );
+		if ( empty( $tables ) ) {
+			return [];
+		}
+
+		$groups = [];
+		foreach ( $tables as $table ) {
+			foreach ( $core_suffixes as $suffix ) {
+				if ( strlen( $table ) > strlen( $suffix ) && substr( $table, -strlen( $suffix ) ) === $suffix ) {
+					$prefix = substr( $table, 0, strlen( $table ) - strlen( $suffix ) );
+					if ( ! isset( $groups[ $prefix ] ) ) {
+						$groups[ $prefix ] = [ 'tables' => [], 'suffixes' => [] ];
+					}
+					$groups[ $prefix ]['tables'][]   = $table;
+					$groups[ $prefix ]['suffixes'][] = $suffix;
+					break;
+				}
+			}
+		}
+
+		$current_prefix = $wpdb->prefix;
+		$result = [];
+		foreach ( $groups as $prefix => $data ) {
+			if ( $prefix === $current_prefix ) {
+				continue; // De actieve installatie, geen "andere" set.
+			}
+			// Alleen meenemen als het er echt als een volledige WP-set
+			// uitziet, niet als toevallig één losstaande tabel matcht.
+			$has_options    = in_array( 'options', $data['suffixes'], true );
+			$has_users_like = in_array( 'users', $data['suffixes'], true ) || in_array( 'posts', $data['suffixes'], true );
+			if ( ! $has_options || ! $has_users_like ) {
+				continue;
+			}
+			$result[] = [
+				'prefix'      => $prefix,
+				'table_count' => count( $data['tables'] ),
+				'tables'      => $data['tables'],
+			];
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Toont een notice op admin pages als de prefix nog 'wp_' is.
 	 */
 	public function maybe_show_notice() {
@@ -306,6 +371,17 @@ class MCM_DB_Prefix_Manager {
 		if ( null === $replaced ) {
 			return new WP_Error( 'regex_failed', 'Kon $table_prefix niet vervangen.' );
 		}
+
+		// Zelfde vangnet als MCM_WPConfig_Manager: nooit een ongeldige
+		// wp-config.php wegschrijven. Op mtbarchitecten.nl (2026-09-15)
+		// brak precies dit soort ongevalideerde herschrijving de site.
+		$syntax_check = MCM_WPConfig_Manager::check_syntax( $replaced );
+		if ( is_wp_error( $syntax_check ) ) {
+			return $syntax_check;
+		}
+
+		@copy( $path, $path . '.mcm-backup' );
+
 		if ( false === file_put_contents( $path, $replaced ) ) {
 			return new WP_Error( 'write_failed', 'Kon wp-config.php niet schrijven.' );
 		}

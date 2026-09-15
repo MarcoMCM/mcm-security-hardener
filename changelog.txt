@@ -1,5 +1,21 @@
 MCM Security Hardener — Changelog
 
+= 1.28.0 (2026-09-15) =
+* Nieuw: rapportage "Andere tabel-sets in deze database" onder Database
+  Prefix (class-db-prefix-manager.php, class-admin-page.php)
+  - Aanleiding: mtbarchitecten.nl bleek naast de actieve wp_-tabellen nog
+    een volledige, ongebruikte tabelset (wp519537*, oude migratie) te
+    bevatten. Niets in de plugin liet dat zien.
+  - Groepeert alle tabellen in de database op prefix (herkend via
+    kern-tabelnamen als options/posts/users/etc.) en toont groepen die
+    niet bij de actieve prefix horen. Puur informatief — wijzigt of
+    verwijdert niets.
+* Fix: MCM_DB_Prefix_Manager::update_config_prefix() had hetzelfde
+  ontbrekende vangnet als de bug uit 1.27.0 — schreef wp-config.php weg
+  zonder syntax-validatie. Gebruikt nu dezelfde check_syntax() en
+  rolling backup als MCM_WPConfig_Manager (die nu public is zodat beide
+  classes 'm kunnen gebruiken).
+
 = 1.27.0 (2026-09-15) =
 * Fix: "Secure keys" hardening kon wp-config.php stuk schrijven op sites met
   bestaande salts uit WordPress' eigen officiële generator
