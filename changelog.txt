@@ -1,5 +1,34 @@
 MCM Security Hardener — Changelog
 
+= 1.28.1 (2026-09-15) =
+* Fix: de php -l-check in check_syntax() faalde altijd op hosts waar
+  PHP_BINARY naar de php-fpm-daemon wijst in plaats van de CLI-binary
+  (class-wpconfig-manager.php)
+  - Aanleiding: op mtbarchitecten.nl (xel.nl-hosting) bleef
+    wp-config.php structureel "Niet actief" — de write faalde elke keer
+    met een foutmelding die "schrijfbaar?" suggereerde, terwijl het
+    bestand echt schrijfbaar was. `php-fpm8.3 -l <file>` bleek geen
+    geldige aanroep: exit-code 64 met een usage-dump, ongeacht de
+    inhoud van het bestand.
+  - `check_syntax()` herkent nu wanneer PHP_BINARY een fpm-binary is en
+    slaat de exec()-aanroep dan over, rechtstreeks naar de bestaande
+    tokenizer-fallback.
+* Fix: het uitcommentariëren van een bestaande define()-regel
+  (comment_out_constants(), t.b.v. de "secure keys"-hardening) kon
+  wp-config.php alsnog stuk maken als de bestaande waarde toevallig een
+  letterlijke PHP-sluit-tag bevatte
+  - Aanleiding: gevonden tijdens het debuggen van de fpm-fix hierboven —
+    de bestaande LOGGED_IN_SALT op mtbarchitecten.nl bevatte die
+    sequentie. PHP sluit script-modus daarop af, ook binnen een
+    //-comment, dus de rest van wp-config.php zou als platte tekst zijn
+    weggeschreven. `php -l` ziet dit niet als fout (het is geen
+    parse-fout, enkel onbedoeld gedrag) — op een host waar de
+    exec()-check wél werkt, was dit dus stilletjes doorgegaan.
+  - De sequentie wordt nu omkeerbaar geneutraliseerd vóór het
+    uitcommentariëren, en teruggezet bij restore_commented_constants()
+    zodat het verwijderen van de plugin-regels het origineel weer
+    exact herstelt.
+
 = 1.28.0 (2026-09-15) =
 * Nieuw: rapportage "Andere tabel-sets in deze database" onder Database
   Prefix (class-db-prefix-manager.php, class-admin-page.php)

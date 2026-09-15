@@ -12,6 +12,10 @@ class MCM_WPConfig_Manager {
 	const START_MARKER = '# BEGIN MCM Security Hardener';
 	const END_MARKER   = '# END MCM Security Hardener';
 
+	// Placeholder used to reversibly neutralize a literal PHP closing tag
+	// when a define() line gets turned into a comment — see comment_out_constants().
+	const PHP_CLOSE_PLACEHOLDER = '__MCM_PHP_CLOSE_TAG__';
+
 	/**
 	 * Write security constants to wp-config.php.
 	 */
@@ -74,7 +78,17 @@ class MCM_WPConfig_Manager {
 	public static function check_syntax( $content ) {
 		$php_binary = defined( 'PHP_BINARY' ) && PHP_BINARY ? PHP_BINARY : 'php';
 
-		if ( function_exists( 'exec' ) && ! in_array( 'exec', array_map( 'trim', explode( ',', (string) ini_get( 'disable_functions' ) ) ), true ) ) {
+		// On PHP-FPM, PHP_BINARY often resolves to the FPM daemon itself
+		// (e.g. /usr/sbin/php-fpm8.3) rather than the CLI binary. That
+		// binary doesn't support `-l` for linting — it just prints its own
+		// usage text and exits non-zero — which would make every write
+		// falsely look like invalid syntax. Verified on a live xel.nl host:
+		// `php-fpm8.3 -l <file>` exits 64 with a usage dump, regardless of
+		// the file's actual content. Skip straight to the tokenizer
+		// fallback in that case instead of trusting a bogus exit code.
+		$binary_is_fpm = (bool) preg_match( '/fpm/i', basename( $php_binary ) );
+
+		if ( ! $binary_is_fpm && function_exists( 'exec' ) && ! in_array( 'exec', array_map( 'trim', explode( ',', (string) ini_get( 'disable_functions' ) ) ), true ) ) {
 			$tmp_file = wp_tempnam( 'mcm-wpconfig-check' );
 			if ( $tmp_file ) {
 				file_put_contents( $tmp_file, $content );
@@ -283,7 +297,22 @@ class MCM_WPConfig_Manager {
 		$value = "(?:'(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\"|[^;]*?)";
 		foreach ( $constants as $name ) {
 			$pattern = '/^(\s*define\s*\(\s*[\'"]' . preg_quote( $name, '/' ) . '[\'"]\s*,\s*' . $value . '\s*\)\s*;.*)$/m';
-			$content = preg_replace( $pattern, '// MCM_DISABLED: $1', $content );
+			$content = preg_replace_callback(
+				$pattern,
+				function ( $matches ) {
+					// A define() value can legitimately contain a literal
+					// PHP closing tag sequence — it turns up by chance in
+					// randomly generated secret keys/salts. PHP closes
+					// script mode on that sequence even inside a //
+					// comment, so commenting such a line out as-is would
+					// truncate the rest of wp-config.php into raw HTML
+					// output. Neutralize it reversibly;
+					// restore_commented_constants() puts it back verbatim.
+					$safe = str_replace( '?>', self::PHP_CLOSE_PLACEHOLDER, $matches[1] );
+					return '// MCM_DISABLED: ' . $safe;
+				},
+				$content
+			);
 		}
 		return $content;
 	}
@@ -292,7 +321,8 @@ class MCM_WPConfig_Manager {
 	 * Restore lines that were commented out by comment_out_constants().
 	 */
 	private static function restore_commented_constants( $content ) {
-		return preg_replace( '/^\/\/ MCM_DISABLED: (.*)$/m', '$1', $content );
+		$content = preg_replace( '/^\/\/ MCM_DISABLED: (.*)$/m', '$1', $content );
+		return str_replace( self::PHP_CLOSE_PLACEHOLDER, '?>', $content );
 	}
 
 	/**
