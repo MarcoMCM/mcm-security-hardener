@@ -46,7 +46,78 @@ class MCM_WPConfig_Manager {
 			$config_content = substr( $config_content, 0, $insert_at ) . "\n" . $block . substr( $config_content, $insert_at );
 		}
 
+		// Safety net: never write a version of wp-config.php that isn't valid PHP.
+		// A regex-based rewrite of live PHP source can't fully understand PHP's
+		// own string-escaping rules, so a defensive syntax check before writing
+		// is what actually prevents a broken site — not the regex being "clever".
+		$syntax_check = self::check_syntax( $config_content );
+		if ( is_wp_error( $syntax_check ) ) {
+			return $syntax_check;
+		}
+
+		// Keep one rolling backup so a bad write is a one-command restore,
+		// even in the case the syntax check above can't run on this host.
+		@copy( $config_path, $config_path . '.mcm-backup' );
+
 		return file_put_contents( $config_path, $config_content ) !== false;
+	}
+
+	/**
+	 * Best-effort validation that $content is syntactically valid PHP.
+	 *
+	 * Uses `php -l` when the host allows shelling out. If exec() is disabled
+	 * (common on locked-down hosting), falls back to a lightweight tokenizer
+	 * check that at least catches the failure mode we've actually seen in
+	 * production: a define() line getting truncated mid-string so PHP falls
+	 * out of PHP mode and starts echoing the rest of the file as HTML.
+	 */
+	private static function check_syntax( $content ) {
+		$php_binary = defined( 'PHP_BINARY' ) && PHP_BINARY ? PHP_BINARY : 'php';
+
+		if ( function_exists( 'exec' ) && ! in_array( 'exec', array_map( 'trim', explode( ',', (string) ini_get( 'disable_functions' ) ) ), true ) ) {
+			$tmp_file = wp_tempnam( 'mcm-wpconfig-check' );
+			if ( $tmp_file ) {
+				file_put_contents( $tmp_file, $content );
+				$output    = [];
+				$exit_code = 0;
+				exec( escapeshellarg( $php_binary ) . ' -l ' . escapeshellarg( $tmp_file ) . ' 2>&1', $output, $exit_code );
+				@unlink( $tmp_file );
+
+				if ( 0 !== $exit_code ) {
+					return new WP_Error(
+						'invalid_syntax',
+						'Wijziging aan wp-config.php afgebroken: het resultaat is geen geldige PHP (php -l meldde: ' . implode( ' ', $output ) . '). Er is niets weggeschreven.'
+					);
+				}
+
+				return true;
+			}
+		}
+
+		// Fallback: no exec() available. Tokenize and reject if PHP mode
+		// closes (inline HTML) anywhere after the opening tag — a valid
+		// wp-config.php should be 100% PHP from start to finish.
+		if ( function_exists( 'token_get_all' ) ) {
+			$tokens        = @token_get_all( $content );
+			$seen_open_tag = false;
+			foreach ( $tokens as $token ) {
+				if ( ! is_array( $token ) ) {
+					continue;
+				}
+				if ( T_OPEN_TAG === $token[0] ) {
+					$seen_open_tag = true;
+					continue;
+				}
+				if ( $seen_open_tag && T_INLINE_HTML === $token[0] && '' !== trim( $token[1] ) ) {
+					return new WP_Error(
+						'invalid_syntax',
+						'Wijziging aan wp-config.php afgebroken: het resultaat lijkt uit PHP-modus te breken (onverwachte tekst gevonden). Er is niets weggeschreven.'
+					);
+				}
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -203,8 +274,15 @@ class MCM_WPConfig_Manager {
 	 * Marks them with // MCM_DISABLED: so they can be restored later.
 	 */
 	private static function comment_out_constants( $content, array $constants ) {
+		// The value is matched as a properly escaped single- or double-quoted
+		// PHP string (or a bare token like true/false/123) rather than a bare
+		// ".*". A naive ".*" doesn't know PHP's string-escaping rules and can
+		// mis-detect where the value actually ends when it contains quotes,
+		// backslashes or backticks — exactly what WordPress's own secret-key
+		// generator produces, and exactly what corrupted a live site here.
+		$value = "(?:'(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\"|[^;]*?)";
 		foreach ( $constants as $name ) {
-			$pattern = '/^(\s*define\s*\(\s*[\'"]' . preg_quote( $name, '/' ) . '[\'"]\s*,.*\);.*)$/m';
+			$pattern = '/^(\s*define\s*\(\s*[\'"]' . preg_quote( $name, '/' ) . '[\'"]\s*,\s*' . $value . '\s*\)\s*;.*)$/m';
 			$content = preg_replace( $pattern, '// MCM_DISABLED: $1', $content );
 		}
 		return $content;

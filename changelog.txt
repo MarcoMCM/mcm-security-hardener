@@ -1,5 +1,26 @@
 MCM Security Hardener — Changelog
 
+= 1.27.0 (2026-09-15) =
+* Fix: "Secure keys" hardening kon wp-config.php stuk schrijven op sites met
+  bestaande salts uit WordPress' eigen officiële generator
+  (class-wpconfig-manager.php)
+  - Aanleiding: op mtbarchitecten.nl brak de site na activering. De
+    bestaande NONCE_KEY-regel gebruikte WordPress' officiële tekenset
+    (backticks, backslashes, aanhalingstekens), die de oude regex — een
+    kale ".*" die niets van PHP-string-escaping afweet — verkeerd
+    afkapte. Daardoor viel PHP uit PHP-modus en toonde de site platte
+    broncode in plaats van de pagina.
+  - `comment_out_constants()`: de regex herkent nu expliciet een correct
+    ge-escapete single- of double-quoted PHP-string als waarde, in plaats
+    van blind tot de eerstvolgende ");" te matchen.
+  - `write()`: vóór wegschrijven wordt de resulterende wp-config.php nu
+    gevalideerd (`php -l` waar exec() beschikbaar is, anders een
+    tokenizer-check op onverwachte inline HTML). Is het resultaat geen
+    geldige PHP, dan wordt er niets weggeschreven en komt er een
+    duidelijke foutmelding — in plaats van een kapotte site.
+  - Extra vangnet: vóór elke write wordt een `wp-config.php.mcm-backup`
+    gezet, zodat een misser altijd één bestand-restore is.
+
 = 1.26.1 (2026-09-10) =
 * Fix: "Markeer als veilig" en "Herstel" deden echt niets (class-admin-page.php)
   - De vorige fix (1.26.0) loste alleen de weergave op. De daadwerkelijke
