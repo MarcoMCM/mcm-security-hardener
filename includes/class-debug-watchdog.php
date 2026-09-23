@@ -23,9 +23,42 @@ class MCM_Debug_Watchdog {
 
 	const EMAIL_THROTTLE_KEY = 'mcm_security_debug_watchdog_mailed';
 	const EMAIL_THROTTLE_TTL = DAY_IN_SECONDS;
+	const ACTION_DISABLE     = 'mcm_disable_wp_debug';
 
 	public function __construct() {
 		add_action( 'admin_init', [ $this, 'check' ] );
+		add_action( 'admin_post_' . self::ACTION_DISABLE, [ $this, 'handle_disable' ] );
+	}
+
+	/**
+	 * "Zet WP_DEBUG uit"-knop uit de melding: zet de instelling op 'off' en
+	 * schrijft wp-config.php direct weg.
+	 */
+	public function handle_disable() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Geen toegang.', 'MCM Security', [ 'response' => 403 ] );
+		}
+		check_admin_referer( self::ACTION_DISABLE );
+
+		$settings               = get_option( 'mcm_security_settings', MCM_Security_Hardener::get_defaults() );
+		$settings['debug_mode'] = 'off';
+
+		// Staat ons wp-config-blok nu niet actief (regels bewust verwijderd),
+		// schrijf dan alléén de debug-regel — niet ongevraagd alle hardening
+		// terugzetten.
+		$to_write = MCM_WPConfig_Manager::is_active() ? $settings : [ 'debug_mode' => 'off' ];
+		$result   = MCM_WPConfig_Manager::write( $to_write );
+
+		if ( true === $result ) {
+			update_option( 'mcm_security_settings', $settings );
+			delete_transient( self::EMAIL_THROTTLE_KEY );
+			$status = 'debug_off';
+		} else {
+			$status = 'debug_off_error';
+		}
+
+		wp_safe_redirect( add_query_arg( 'mcm-status', $status, admin_url( 'tools.php?page=mcm-security' ) ) );
+		exit;
 	}
 
 	public function check() {
@@ -73,14 +106,24 @@ class MCM_Debug_Watchdog {
 			: 'WP_DEBUG staat aan op productie';
 
 		$body = $leaking
-			? 'PHP-fouten worden getoond aan bezoekers. Dit kan paden, queries en stack traces lekken. Zet <code>WP_DEBUG_DISPLAY</code> uit in <code>wp-config.php</code> of via deze plugin (instelling "Hide debug display").'
+			? 'PHP-fouten worden getoond aan bezoekers. Dit kan paden, queries en stack traces lekken. Zet <code>WP_DEBUG_DISPLAY</code> uit in <code>wp-config.php</code> of via deze plugin (instelling "Verberg foutmeldingen").'
 			: 'Debug-modus draait op een productie-omgeving. Vergeet niet uit te zetten zodra je klaar bent met debuggen.';
 
+		$buttons = '';
+		if ( current_user_can( 'manage_options' ) ) {
+			$buttons = sprintf(
+				'<p><a href="%s" class="button button-primary">Zet WP_DEBUG uit</a> <a href="%s" class="button">Debug-instelling bekijken</a></p>',
+				esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . self::ACTION_DISABLE ), self::ACTION_DISABLE ) ),
+				esc_url( admin_url( 'tools.php?page=mcm-security#mcm-debug-mode' ) )
+			);
+		}
+
 		printf(
-			'<div class="%s"><p><strong>%s</strong></p><p>%s</p></div>',
+			'<div class="%s"><p><strong>%s</strong></p><p>%s</p>%s</div>',
 			esc_attr( $class ),
 			esc_html( $title ),
-			wp_kses_post( $body )
+			wp_kses_post( $body ),
+			$buttons
 		);
 	}
 

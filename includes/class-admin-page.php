@@ -464,6 +464,7 @@ class MCM_Admin_Page {
 		$settings = MCM_Security_Hardener::get_defaults();
 		// Preserve user-specific values.
 		$settings['admin_email']      = isset( $_POST['admin_email'] ) ? sanitize_email( $_POST['admin_email'] ) : get_option( 'admin_email', '' );
+		$settings['debug_mode']       = MCM_WPConfig_Manager::get_debug_mode( [ 'debug_mode' => isset( $_POST['debug_mode'] ) ? sanitize_key( $_POST['debug_mode'] ) : 'keep' ] );
 		$settings['login_slug']       = isset( $_POST['login_slug'] ) && ! empty( $_POST['login_slug'] ) ? sanitize_title( $_POST['login_slug'] ) : 'inloggenwebsite';
 		$settings['bad_referers_list'] = isset( $_POST['bad_referers_list'] ) ? sanitize_textarea_field( $_POST['bad_referers_list'] ) : '';
 		$settings['disposable_email_list'] = isset( $_POST['disposable_email_list'] ) ? sanitize_textarea_field( $_POST['disposable_email_list'] ) : '';
@@ -540,6 +541,8 @@ class MCM_Admin_Page {
 			'generic_login_errors',
 			// anomaly scanner
 			'anomaly_scanner_enabled',
+			// core integrity scanner
+			'core_integrity_enabled',
 			// php error watcher
 			'php_error_watcher_enabled',
 		];
@@ -549,6 +552,7 @@ class MCM_Admin_Page {
 			$settings[ $key ] = ! empty( $post[ $key ] );
 		}
 
+		$settings['debug_mode']       = MCM_WPConfig_Manager::get_debug_mode( [ 'debug_mode' => isset( $post['debug_mode'] ) ? sanitize_key( $post['debug_mode'] ) : 'keep' ] );
 		$settings['admin_email']      = isset( $post['admin_email'] ) ? sanitize_email( $post['admin_email'] ) : '';
 		$settings['login_slug']       = isset( $post['login_slug'] ) ? sanitize_title( $post['login_slug'] ) : '';
 		$settings['bad_referers_list'] = isset( $post['bad_referers_list'] ) ? sanitize_textarea_field( $post['bad_referers_list'] ) : '';
@@ -1183,6 +1187,7 @@ class MCM_Admin_Page {
 						$this->render_toggle( 'secure_keys', 'Beveiligde sleutels genereren', 'Genereert sterke AUTH_KEY, SECURE_AUTH_KEY, LOGGED_IN_KEY, NONCE_KEY en bijbehorende salts.', $settings );
 						$this->render_toggle( 'skip_bundled', 'Skip gebundelde themes', 'CORE_UPGRADE_SKIP_NEW_BUNDLED &mdash; voegt geen nieuwe default themes toe bij core updates.', $settings );
 						$this->render_toggle( 'lock_admin_email', 'Vergrendel admin e-mail', 'Voorkomt wijzigen van het admin e-mailadres.', $settings );
+						$this->render_debug_mode_row( $settings );
 						?>
 						<tr>
 							<th scope="row"><label for="admin_email">Admin e-mail</label></th>
@@ -2532,11 +2537,53 @@ class MCM_Admin_Page {
 		<?php
 	}
 
+	/**
+	 * WP_DEBUG beheer: keuzelijst + de nu actieve waardes, zodat zichtbaar is
+	 * wat wp-config.php op dit moment écht doet.
+	 */
+	private function render_debug_mode_row( $settings ) {
+		$mode  = MCM_WPConfig_Manager::get_debug_mode( $settings );
+		$state = function ( $name ) {
+			if ( ! defined( $name ) ) {
+				return '<code>niet gedefinieerd</code>';
+			}
+			return constant( $name ) ? '<code style="color:#b32d2e;">true</code>' : '<code>false</code>';
+		};
+		$options = [
+			'keep' => 'Niet beheren (wp-config.php bepaalt)',
+			'off'  => 'Uit (WP_DEBUG=false)',
+			'log'  => 'Aan, alleen loggen naar debug.log (niet tonen)',
+		];
+		?>
+		<tr id="mcm-debug-mode">
+			<th scope="row"><label for="debug_mode">WP_DEBUG</label></th>
+			<td>
+				<select id="debug_mode" name="debug_mode">
+					<?php foreach ( $options as $value => $label ) : ?>
+						<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $mode, $value ); ?>><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+				<p class="description">
+					Zet debug-modus aan of uit zonder wp-config.php met de hand te bewerken. Wordt actief na <em>Opslaan &amp; Toepassen</em>.
+					&ldquo;Alleen loggen&rdquo; zet ook <code>WP_DEBUG_DISPLAY=false</code>, zodat bezoekers nooit foutmeldingen zien; de log staat in <code>wp-content/debug.log</code> (afgeschermd via <em>Blokkeer debug.log toegang</em>).
+				</p>
+				<p class="description">
+					Nu actief &mdash; WP_DEBUG: <?php echo $state( 'WP_DEBUG' ); ?>,
+					WP_DEBUG_LOG: <?php echo $state( 'WP_DEBUG_LOG' ); ?>,
+					WP_DEBUG_DISPLAY: <?php echo $state( 'WP_DEBUG_DISPLAY' ); ?>.
+				</p>
+			</td>
+		</tr>
+		<?php
+	}
+
 	private function render_notice( $status ) {
 		if ( ! $status ) {
 			return;
 		}
 		$messages = [
+			'debug_off' => [ 'success', '<strong>WP_DEBUG staat uit.</strong> De instelling is naar wp-config.php geschreven.' ],
+			'debug_off_error' => [ 'error', 'WP_DEBUG kon niet worden uitgezet: wp-config.php is niet schrijfbaar of de wijziging werd geweigerd door de syntax-check. Er is niets gewijzigd.' ],
 			'saved'   => [ 'success', 'Instellingen opgeslagen. Klik "Opslaan & Toepassen" om ze te activeren in de bestanden.' ],
 			'applied' => [ 'success', 'Regels zijn geschreven naar wp-config.php en .htaccess.' ],
 			'all_enabled' => [ 'success', 'Alle beveiligingsopties zijn geactiveerd en toegepast op wp-config.php en .htaccess.' ],

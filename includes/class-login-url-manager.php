@@ -86,7 +86,19 @@ class MCM_Login_URL_Manager {
 		$request_uri = $this->get_request_path();
 
 		if ( $request_uri === '/' . $this->custom_slug || $request_uri === '/' . $this->custom_slug . '/' ) {
-			// Load wp-login.php internally.
+			// Load wp-login.php internally. Het bestand verwacht in de globale
+			// scope te draaien: login_header()/login_footer() lezen $error,
+			// $interim_login en $action via `global`, en $user_login wordt
+			// ongedefinieerd gelezen. Binnen deze methode zouden het lokale
+			// variabelen zijn → "Undefined variable $user_login/$error"-warnings
+			// in debug.log en een interim-login die zijn state kwijt is.
+			global $error, $interim_login, $action, $user_login;
+			if ( ! isset( $user_login ) ) {
+				$user_login = '';
+			}
+			if ( ! isset( $error ) ) {
+				$error = '';
+			}
 			require_once ABSPATH . 'wp-login.php';
 			exit;
 		}

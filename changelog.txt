@@ -1,5 +1,36 @@
 MCM Security Hardener — Changelog
 
+= 1.29.0 (2026-09-23) =
+* Nieuw: WP_DEBUG beheren vanuit de plugin (class-wpconfig-manager.php,
+  class-admin-page.php, class-debug-watchdog.php)
+  - Instelling "WP_DEBUG" in WordPress Core Hardening: Niet beheren
+    (standaard, wp-config.php bepaalt) / Uit / Aan, alleen loggen naar
+    debug.log. Wordt via het bestaande wp-config-blok geschreven; een
+    bestaande define() wordt net als bij de andere constanten
+    uitgecommentarieerd en bij "Niet beheren" weer hersteld.
+  - "Alleen loggen" zet altijd ook WP_DEBUG_DISPLAY=false (één define,
+    ook als "Verberg foutmeldingen" aan staat).
+  - De instelling toont de nu actieve waardes van WP_DEBUG,
+    WP_DEBUG_LOG en WP_DEBUG_DISPLAY.
+  - De debug-watchdog-melding heeft nu een knop "Zet WP_DEBUG uit"
+    (schrijft direct naar wp-config.php) en een link naar de instelling.
+    Staat het wp-config-blok niet actief, dan wordt alléén de debug-regel
+    geschreven — niet ongevraagd alle hardening.
+* Fix: "Undefined variable $user_login / $error" warnings uit
+  wp-login.php op sites met een custom login-slug
+  (class-login-url-manager.php)
+  - Aanleiding: debug.log van pensioenfonds-sagittarius.nl.
+  - Oorzaak: wp-login.php werd via require_once binnen een methode
+    geladen, waardoor de variabelen lokaal waren in plaats van globaal.
+    Dat gaf niet alleen de warnings, ook $interim_login en $action
+    kwamen niet aan bij login_header()/login_footer().
+  - $error, $interim_login, $action en $user_login worden nu als global
+    gedeclareerd vóór het laden.
+* Fix: de Core Integrity Scanner-toggle kon niet uitgezet worden
+  (class-admin-page.php) — 'core_integrity_enabled' ontbrak in
+  sanitize_input(), waardoor de key bij opslaan wegviel en de scanner
+  terugviel op de default (aan).
+
 = 1.28.1 (2026-09-15) =
 * Fix: de php -l-check in check_syntax() faalde altijd op hosts waar
   PHP_BINARY naar de php-fpm-daemon wijst in plaats van de CLI-binary

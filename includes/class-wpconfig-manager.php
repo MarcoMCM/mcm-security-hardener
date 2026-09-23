@@ -196,7 +196,16 @@ class MCM_WPConfig_Manager {
 		if ( ! empty( $s['no_db_error'] ) ) {
 			$lines[] = "define( 'DIEONDBERROR', false );";
 		}
-		if ( ! empty( $s['no_debug_display'] ) ) {
+		$debug_mode = self::get_debug_mode( $s );
+		if ( 'off' === $debug_mode ) {
+			$lines[] = "define( 'WP_DEBUG', false );";
+		} elseif ( 'log' === $debug_mode ) {
+			$lines[] = "define( 'WP_DEBUG', true );";
+			$lines[] = "define( 'WP_DEBUG_LOG', true );";
+		}
+		// Debug-met-log toont nooit fouten aan bezoekers, ook als "Verberg
+		// foutmeldingen" uit staat. Eén define, anders "already defined".
+		if ( ! empty( $s['no_debug_display'] ) || 'log' === $debug_mode ) {
 			$lines[] = "define( 'WP_DEBUG_DISPLAY', false );";
 		}
 		if ( ! empty( $s['lock_admin_email'] ) && ! empty( $s['admin_email'] ) ) {
@@ -222,6 +231,14 @@ class MCM_WPConfig_Manager {
 		}
 
 		return $lines;
+	}
+
+	/**
+	 * Genormaliseerde WP_DEBUG-modus: 'keep', 'off' of 'log'.
+	 */
+	public static function get_debug_mode( array $s ) {
+		$mode = isset( $s['debug_mode'] ) ? (string) $s['debug_mode'] : 'keep';
+		return in_array( $mode, [ 'keep', 'off', 'log' ], true ) ? $mode : 'keep';
 	}
 
 	/**
@@ -269,7 +286,10 @@ class MCM_WPConfig_Manager {
 		if ( ! empty( $s['disallow_file_edit'] ) )    $constants[] = 'DISALLOW_FILE_EDIT';
 		// DISALLOW_FILE_MODS handled at runtime by MCM_Lockdown_Manager
 		if ( ! empty( $s['no_db_error'] ) )           $constants[] = 'DIEONDBERROR';
-		if ( ! empty( $s['no_debug_display'] ) )      $constants[] = 'WP_DEBUG_DISPLAY';
+		$debug_mode = self::get_debug_mode( $s );
+		if ( 'off' === $debug_mode )                  $constants[] = 'WP_DEBUG';
+		if ( 'log' === $debug_mode )                  $constants = array_merge( $constants, [ 'WP_DEBUG', 'WP_DEBUG_LOG' ] );
+		if ( ! empty( $s['no_debug_display'] ) || 'log' === $debug_mode ) $constants[] = 'WP_DEBUG_DISPLAY';
 		if ( ! empty( $s['lock_admin_email'] ) )      $constants[] = 'SECUPRESS_LOCKED_ADMIN_EMAIL';
 		if ( ! empty( $s['auto_update_minor'] ) )     $constants[] = 'WP_AUTO_UPDATE_CORE';
 		if ( ! empty( $s['random_cookie_hash'] ) )    $constants[] = 'COOKIEHASH';
