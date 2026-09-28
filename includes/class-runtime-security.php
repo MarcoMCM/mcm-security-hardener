@@ -97,7 +97,11 @@ class MCM_Runtime_Security {
 			'/old-site/',
 		];
 
-		$output .= "\n# MCM Security Blackhole - trap for bad bots\n";
+		// Eigen User-agent-groep: Disallow-regels zonder voorafgaande
+		// User-agent worden door crawlers genegeerd, en Yoast e.a. zetten hun
+		// eigen blok ná het onze. Groepen voor dezelfde user-agent worden
+		// samengevoegd (RFC 9309), dus dit botst niet met andere groepen.
+		$output .= "\n# MCM Security Blackhole - trap for bad bots\nUser-agent: *\n";
 		foreach ( $trap_paths as $path ) {
 			$output .= "Disallow: {$path}\n";
 		}

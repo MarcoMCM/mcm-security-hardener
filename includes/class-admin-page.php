@@ -114,9 +114,12 @@ class MCM_Admin_Page {
 
 		$this->maybe_send_slug_change_mail( $old_slug, $settings );
 
-		if ( is_wp_error( $config_result ) || is_wp_error( $htaccess_result ) ) {
+		if ( is_wp_error( $htaccess_result ) && 'reverted' === $htaccess_result->get_error_code() ) {
+			$this->redirect( 'htaccess_reverted' );
+		} elseif ( is_wp_error( $config_result ) || is_wp_error( $htaccess_result ) ) {
 			$this->redirect( 'error' );
 		} else {
+			MCM_Upgrader::clear_failure();
 			$this->redirect( 'applied' );
 		}
 	}
@@ -1280,7 +1283,7 @@ class MCM_Admin_Page {
 						<?php
 						$this->render_toggle( 'block_script_concat', 'Blokkeer load-scripts DoS', 'Blokkeert load-scripts.php en load-styles.php (DoS vector).', $settings );
 						$this->render_toggle( 'block_debug_log', 'Blokkeer debug.log toegang', 'Blokkeert publieke toegang tot debug.log.', $settings );
-						$this->render_toggle( 'block_log_txt_files', 'Blokkeer .log en .txt bestanden', 'Blokkeert alle .log en .txt bestanden voor publieke toegang.', $settings );
+						$this->render_toggle( 'block_log_txt_files', 'Blokkeer .log en .txt bestanden', 'Blokkeert .log- en .txt-bestanden voor publieke toegang, zoals <code>license.txt</code>, <code>readme.txt</code> en logbestanden. Uitgezonderd, want die horen publiek: <code>robots.txt</code>, <code>ads.txt</code>, <code>app-ads.txt</code>, <code>llms.txt</code>, <code>llms-full.txt</code>, <code>humans.txt</code> en <code>security.txt</code>.', $settings );
 						$this->render_toggle( 'block_php_in_uploads', 'Blokkeer PHP in uploads', 'Voorkomt uitvoering van PHP-bestanden in wp-content/uploads/.', $settings );
 						$this->render_toggle( 'block_wp_includes_php', 'Blokkeer wp-includes PHP', 'Blokkeert directe PHP-toegang in wp-includes/ (behalve TinyMCE en JS).', $settings );
 						?>
@@ -2466,7 +2469,7 @@ class MCM_Admin_Page {
 
 			// Overig.
 			'block_xmlrpc'                   => [ 'aan', 'Uit als Jetpack of een app XML-RPC nodig heeft.' ],
-			'block_log_txt_files'            => [ 'aan', 'Let op: blokkeert ook een echte <code>ads.txt</code> of <code>robots.txt</code> als bestand.' ],
+			'block_log_txt_files'            => [ 'aan', 'robots.txt, ads.txt, llms.txt en security.txt blijven bereikbaar (sinds 1.30.0; daarvoor gaf ook de door WordPress gegenereerde robots.txt een 403).' ],
 			'noindex_login'                  => [ 'aan', 'Al ge&iuml;ndexeerde URLs verdwijnen pas bij de volgende crawl.' ],
 			'auto_update_minor'              => [ 'aan', 'Uit op staging als je zelf wilt bepalen wanneer die meegaat.' ],
 		];
@@ -2582,6 +2585,7 @@ class MCM_Admin_Page {
 			return;
 		}
 		$messages = [
+			'htaccess_reverted' => [ 'error', '<strong>.htaccess teruggedraaid.</strong> Na het wegschrijven reageerde de homepage niet meer goed (5xx, time-out of 403), dus de vorige .htaccess is direct teruggezet. wp-config.php en de instellingen zijn wel opgeslagen. Er is een mail met details verstuurd.' ],
 			'debug_off' => [ 'success', '<strong>WP_DEBUG staat uit.</strong> De instelling is naar wp-config.php geschreven.' ],
 			'debug_off_error' => [ 'error', 'WP_DEBUG kon niet worden uitgezet: wp-config.php is niet schrijfbaar of de wijziging werd geweigerd door de syntax-check. Er is niets gewijzigd.' ],
 			'saved'   => [ 'success', 'Instellingen opgeslagen. Klik "Opslaan & Toepassen" om ze te activeren in de bestanden.' ],

@@ -14,8 +14,23 @@ class MCM_Htaccess_Manager {
 
 	/**
 	 * Write security rules to .htaccess.
+	 *
+	 * Veilig schrijven: de nieuwe inhoud wordt in één keer weggeschreven, er
+	 * wordt vooraf een back-up gezet in uploads/mcm-security-backups/, en een
+	 * loopback-request naar de homepage controleert na het schrijven of de
+	 * site nog werkt. Geeft die een 5xx, een time-out of een nieuwe 403, dan
+	 * wordt de oude .htaccess direct teruggezet en krijgt de eigenaar een mail.
+	 *
+	 * @param array $settings Plugin-instellingen.
+	 * @param bool  $require_verification True = niet schrijven als de loopback
+	 *                                    vooraf al niet werkt (voor de
+	 *                                    automatische upgrade-routine, waar
+	 *                                    niemand meekijkt). False = dan toch
+	 *                                    schrijven, zonder controle achteraf
+	 *                                    (handmatig opslaan: oud gedrag).
+	 * @return true|WP_Error
 	 */
-	public static function write( array $settings ) {
+	public static function write( array $settings, $require_verification = false ) {
 		$htaccess_path = self::get_htaccess_path();
 		if ( ! $htaccess_path ) {
 			return new WP_Error( 'not_found', '.htaccess niet gevonden.' );
@@ -24,31 +39,150 @@ class MCM_Htaccess_Manager {
 			return new WP_Error( 'not_writable', '.htaccess is niet schrijfbaar.' );
 		}
 
-		// Remove existing block first.
-		self::remove();
+		$old_content = file_get_contents( $htaccess_path );
+		if ( false === $old_content ) {
+			return new WP_Error( 'not_readable', '.htaccess kon niet gelezen worden.' );
+		}
+		$new_content = self::build_content( $old_content, self::build_rules( $settings ) );
 
-		$rules = self::build_rules( $settings );
-		if ( empty( $rules ) ) {
+		if ( $new_content === $old_content ) {
+			return true; // Niets veranderd: niet schrijven, geen loopback.
+		}
+
+		$baseline = self::loopback_status();
+		if ( null === $baseline && $require_verification ) {
+			return new WP_Error(
+				'loopback_unavailable',
+				'.htaccess niet bijgewerkt: de site kan zichzelf niet bereiken (loopback-request faalt), dus na het schrijven valt niet te controleren of de site nog werkt.'
+			);
+		}
+
+		self::backup( $old_content );
+
+		if ( false === file_put_contents( $htaccess_path, $new_content ) ) {
+			return new WP_Error( 'write_failed', '.htaccess kon niet worden weggeschreven.' );
+		}
+
+		if ( null === $baseline ) {
+			return true; // Geen controle mogelijk; handmatig opslaan gaat door zoals voorheen.
+		}
+
+		$after = self::loopback_status();
+		if ( ! self::is_broken( $baseline, $after ) ) {
 			return true;
+		}
+
+		file_put_contents( $htaccess_path, $old_content );
+
+		$after_label = null === $after ? 'time-out / geen antwoord' : 'HTTP ' . $after;
+		MCM_Notifier::email(
+			'.htaccess-wijziging automatisch teruggedraaid',
+			"Na het bijwerken van de .htaccess reageerde de homepage niet meer goed.\n\n" .
+			"Voor de wijziging: HTTP {$baseline}\n" .
+			"Na de wijziging:   {$after_label}\n\n" .
+			"De vorige .htaccess is direct teruggezet. Een kopie van de oude versie staat in wp-content/uploads/mcm-security-backups/.\n" .
+			"Controleer welke regel hier niet wordt ondersteund voordat je opnieuw opslaat."
+		);
+
+		return new WP_Error(
+			'reverted',
+			sprintf( 'De nieuwe .htaccess brak de site (%s) en is automatisch teruggedraaid.', $after_label )
+		);
+	}
+
+	/**
+	 * Zet ons blok (opnieuw) in de .htaccess-inhoud: bestaand blok eruit,
+	 * nieuw blok vóór "# BEGIN WordPress". Lege $rules = alleen verwijderen.
+	 */
+	private static function build_content( $content, $rules ) {
+		$pattern = '/' . preg_quote( self::START_MARKER, '/' ) . '.*?' . preg_quote( self::END_MARKER, '/' ) . '\s*/s';
+		$content = preg_replace( $pattern, '', $content );
+
+		if ( '' === $rules ) {
+			return $content;
 		}
 
 		$block  = self::START_MARKER . "\n";
 		$block .= $rules;
 		$block .= self::END_MARKER . "\n\n";
 
-		$content = file_get_contents( $htaccess_path );
-
-		// Insert before WordPress rewrite block.
-		$wp_marker = '# BEGIN WordPress';
-		$pos       = strpos( $content, $wp_marker );
+		// Insert before WordPress rewrite block, anders vooraan.
+		$pos = strpos( $content, '# BEGIN WordPress' );
 		if ( false !== $pos ) {
-			$content = substr( $content, 0, $pos ) . $block . substr( $content, $pos );
-		} else {
-			// Prepend if no WordPress block found.
-			$content = $block . $content;
+			return substr( $content, 0, $pos ) . $block . substr( $content, $pos );
+		}
+		return $block . $content;
+	}
+
+	/**
+	 * HTTP-status van de homepage via een loopback-request, of null als er
+	 * geen antwoord komt (time-out, DNS, geblokkeerde loopback). Cache-buster
+	 * + no-cache-headers, anders geeft Varnish een oude 200 terug.
+	 */
+	public static function loopback_status() {
+		$url = add_query_arg( 'mcm-loopback', wp_generate_password( 8, false ), home_url( '/' ) );
+
+		$response = wp_remote_get(
+			$url,
+			[
+				'timeout'     => 10,
+				'redirection' => 3,
+				'sslverify'   => apply_filters( 'https_local_ssl_verify', false ),
+				'headers'     => [
+					'Cache-Control' => 'no-cache',
+					'Pragma'        => 'no-cache',
+				],
+			]
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return null;
+		}
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		return $code > 0 ? $code : null;
+	}
+
+	/**
+	 * Is de site door de wijziging stukgegaan? Alleen een verslechtering
+	 * telt: een 401 (Basic Auth op staging) of 404 die er vóór ook al was
+	 * is prima.
+	 */
+	private static function is_broken( $baseline, $after ) {
+		if ( null === $after || $after >= 500 ) {
+			return true;
+		}
+		return 403 === $after && 403 !== $baseline;
+	}
+
+	/**
+	 * Back-up van de huidige .htaccess in de al afgeschermde backup-map.
+	 * Houdt de laatste 10.
+	 */
+	private static function backup( $content ) {
+		$uploads = wp_upload_dir( null, false );
+		if ( ! empty( $uploads['error'] ) ) {
+			return;
+		}
+		$dir = trailingslashit( $uploads['basedir'] ) . 'mcm-security-backups';
+		if ( ! wp_mkdir_p( $dir ) ) {
+			return;
+		}
+		if ( ! file_exists( $dir . '/.htaccess' ) ) {
+			file_put_contents( $dir . '/.htaccess', "Require all denied\nDeny from all\n" );
+		}
+		if ( ! file_exists( $dir . '/index.php' ) ) {
+			file_put_contents( $dir . '/index.php', "<?php // Silence is golden.\n" );
 		}
 
-		return file_put_contents( $htaccess_path, $content ) !== false;
+		file_put_contents( $dir . '/htaccess-' . gmdate( 'Ymd-His' ) . '.bak', $content );
+
+		$backups = glob( $dir . '/htaccess-*.bak' );
+		if ( $backups && count( $backups ) > 10 ) {
+			sort( $backups );
+			foreach ( array_slice( $backups, 0, count( $backups ) - 10 ) as $old ) {
+				@unlink( $old );
+			}
+		}
 	}
 
 	/**
@@ -60,9 +194,7 @@ class MCM_Htaccess_Manager {
 			return false;
 		}
 
-		$content = file_get_contents( $htaccess_path );
-		$pattern = '/' . preg_quote( self::START_MARKER, '/' ) . '.*?' . preg_quote( self::END_MARKER, '/' ) . '\s*/s';
-		$content = preg_replace( $pattern, '', $content );
+		$content = self::build_content( file_get_contents( $htaccess_path ), '' );
 
 		return file_put_contents( $htaccess_path, $content ) !== false;
 	}
@@ -198,8 +330,9 @@ HTACCESS;
 		// 8. Block .log and .txt files.
 		if ( ! empty( $s['block_log_txt_files'] ) ) {
 			$rules .= <<<'HTACCESS'
-# Block .log and .txt files
-<FilesMatch "\.(log|txt)$">
+# Block .log and .txt files (behalve robots.txt & co, die WordPress of de
+# site zelf publiek hoort te serveren)
+<FilesMatch "^(?!(robots|ads|app-ads|llms|llms-full|humans|security)\.txt$).+\.(log|txt)$">
     <IfModule !mod_authz_core.c>
         Order allow,deny
         Deny from all

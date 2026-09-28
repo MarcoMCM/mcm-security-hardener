@@ -1,5 +1,40 @@
 MCM Security Hardener — Changelog
 
+= 1.30.0 (2026-09-28) =
+* Fix: /robots.txt gaf op alle sites een 403 (class-htaccess-manager.php)
+  - Oorzaak: de regel block_log_txt_files (`<FilesMatch "\.(log|txt)$">`)
+    raakte ook de robots.txt die WordPress zelf genereert. Apache weigert
+    op bestandsnaam vóórdat WordPress aan bod komt. Gevolg: Google zag de
+    sitemapregel niet en de robots_blackhole werkte nergens. Gemeten op
+    mcmwebsites.nl, parre-deden.nl e.a.; Varnish bij Xel cachet de 403.
+  - robots.txt, ads.txt, app-ads.txt, llms.txt, llms-full.txt, humans.txt
+    en security.txt zijn uitgezonderd. license.txt, readme.txt, debug.log
+    en overige .txt/.log blijven geblokkeerd.
+* Nieuw: upgrade-routine (class-upgrader.php)
+  - Een plugin-update herschreef de .htaccess nooit, dus gewijzigde regels
+    bereikten bestaande sites niet. Na een update detecteert de plugin nu
+    het versieverschil en draait één keer een migratie via wp-cron (met
+    terugval via een admin-pageview als wp-cron 10 minuten over tijd is).
+  - Per versie een expliciete migratie; ontbrekende standaardwaarden worden
+    bewust níet aangevuld. De .htaccess wordt alleen herschreven als het
+    MCM-blok er al staat. wp-config.php wordt niet aangeraakt.
+  - Lukt het niet, dan volgt een mail en een admin-melding (alleen voor
+    MCM-eigenaars); "Opslaan & Toepassen" lost het handmatig op.
+* Nieuw: veilig schrijven van .htaccess (class-htaccess-manager.php)
+  - Nieuwe inhoud wordt in één keer weggeschreven (voorheen: eerst
+    verwijderen, dan opnieuw schrijven) en alleen als er iets verandert.
+  - Vooraf een back-up in uploads/mcm-security-backups/ (laatste 10).
+  - Loopback-request naar de homepage vóór en ná het schrijven, met
+    cache-buster en no-cache-headers (Varnish). Een 5xx, time-out of een
+    nieuwe 403 → oude .htaccess direct teruggezet + mail. Een 401 van
+    Basic Auth op staging telt als goed.
+  - Werkt de loopback vooraf al niet (host blokkeert requests naar
+    zichzelf): bij de automatische upgrade wordt dan niets geschreven;
+    bij handmatig opslaan wordt geschreven zoals voorheen, zonder controle.
+* Fix: de Disallow-regels van de robots-blackhole stonden zonder eigen
+  User-agent-groep in robots.txt en werden daardoor door crawlers genegeerd
+  (class-runtime-security.php). Zichtbaar geworden door de robots.txt-fix.
+
 = 1.29.0 (2026-09-23) =
 * Nieuw: WP_DEBUG beheren vanuit de plugin (class-wpconfig-manager.php,
   class-admin-page.php, class-debug-watchdog.php)
