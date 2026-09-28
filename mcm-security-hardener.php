@@ -46,6 +46,7 @@ require_once MCM_SECURITY_DIR . 'includes/class-db-prefix-manager.php';
 require_once MCM_SECURITY_DIR . 'includes/class-debug-watchdog.php';
 require_once MCM_SECURITY_DIR . 'includes/class-user-audit.php';
 require_once MCM_SECURITY_DIR . 'includes/class-new-admin-alert.php';
+require_once MCM_SECURITY_DIR . 'includes/class-user-delete-guard.php';
 require_once MCM_SECURITY_DIR . 'includes/class-user-enumeration.php';
 require_once MCM_SECURITY_DIR . 'includes/class-update-compat-check.php';
 require_once MCM_SECURITY_DIR . 'includes/class-registration-protection.php';
@@ -95,6 +96,7 @@ final class MCM_Security_Hardener {
 		new MCM_Debug_Watchdog();
 		new MCM_User_Audit();
 		new MCM_New_Admin_Alert();
+		new MCM_User_Delete_Guard();
 		new MCM_User_Enumeration();
 
 		if ( is_admin() ) {

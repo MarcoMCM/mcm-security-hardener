@@ -21,6 +21,7 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | **HTTP Basic Auth voor staging** | Een laag wachtwoord vóór de hele site, alleen actief op staging-omgevingen |
 | **Gebruikersnamen afschermen** | Zet de vier routes dicht waarlangs WordPress logins weggeeft (`?author=1`, REST `/wp/v2/users`, oEmbed, users-sitemap) + een generieke loginfout, zodat een mislukte login niet verklapt of de gebruikersnaam bestaat. Auteursarchieven blijven werken |
 | **Archieven in uploads blokkeren** | Optionele `.htaccess`-regel: 403 op directe download van zip/rar/7z/tar.gz/sql/bak uit `/uploads/`, met uitzondering van `woocommerce_uploads` en AVG-exports |
+| **Inhoud blijft bij gebruiker verwijderen** | Verwijder je een gebruiker met "alle inhoud verwijderen" (of via WP-CLI/code zonder `--reassign`), dan verwijdert WordPress normaal al zijn pagina's, berichten en media. Deze module houdt dat tegen: het account gaat weg, de inhoud gaat naar de beheerder die het deed (anders een MCM-eigenaar of de eerste admin). Eén mail per verzoek, ook bij een batch. Revisies, automatische concepten en prullenbak mogen wel mee. Aanleiding: powair.nl, juni 2026 (171 items weg met één account) |
 | **Database prefix-migratie** | Detecteert default `wp_` + biedt veilige random-prefix-migratie incl. SQL-backup en rollback |
 
 ### 🔎 Detecteren & rapporteren
@@ -84,6 +85,9 @@ add_filter( 'mcm_security_is_owner', function( $is_owner, $user ) {
 // Email-adres waar alle plugin-notificaties heen gaan
 define( 'MCM_SECURITY_NOTIFY_EMAIL', 'marco@mcmwebsites.nl' );
 
+// Laat WordPress weer inhoud meeverwijderen met een gebruiker (User Delete Guard uit)
+define( 'MCM_SECURITY_ALLOW_USER_CONTENT_DELETE', true );
+
 // Schakel de WP_DEBUG productie-watchdog uit (bv. op dev-omgevingen waar WP_DEBUG bewust aan staat)
 define( 'MCM_SECURITY_DISABLE_DEBUG_WATCHDOG', true );
 ```
@@ -97,6 +101,7 @@ define( 'MCM_SECURITY_DISABLE_DEBUG_WATCHDOG', true );
 | `mcm_security_notify_email` | Notificatie-email override |
 | `mcm_blocked_email_domains` | Wegwerpdomein-lijst uitbreiden |
 | `mcm_security_debug_watchdog_enabled` | WP_DEBUG-watchdog uitschakelen |
+| `mcm_user_delete_guard_enabled` | User Delete Guard per gebruiker uitschakelen (`$enabled, $user_id`) |
 | `mcm_anomaly_root_whitelist` | Bekende root-items voor de anomalie-scan (lowercase namen) |
 | `mcm_anomaly_wpcontent_whitelist` | Bekende `wp-content`-items voor de anomalie-scan |
 | `mcm_exposure_archive_regex` | Welke extensies gelden als archief/dump in de uploads- en boven-webroot-scan |
@@ -133,6 +138,7 @@ mcm-security-hardener/
 │   ├── class-debug-watchdog.php       WP_DEBUG productie-detector
 │   ├── class-user-audit.php           Users met verhoogde rechten
 │   ├── class-new-admin-alert.php      Real-time mail bij nieuw administrator-account
+│   ├── class-user-delete-guard.php    Inhoud nooit meeverwijderen met een gebruiker
 │   ├── class-update-compat-check.php  WP-update plugin-compat tabel
 │   ├── class-backend-access.php       Skip email-confirm + non-admin backend-block
 │   ├── class-file-exposure-scanner.php  Scan op blootgestelde bestanden (webroot + uploads + boven webroot)
