@@ -1,6 +1,12 @@
 <?php
 /**
  * Hides wp-login.php and provides a custom login slug.
+ *
+ * De slug mag alleen uitlekken naar wie hem al kent. Daarom (sinds 1.31.0)
+ * ook dicht voor uitgelogde bezoekers: /wp-admin/ (auth_redirect stuurde
+ * door naar de slug), /login, /admin en /dashboard (core-redirects) en de
+ * wp-login.php-uitzonderingen rp, resetpass, confirmaction en interim-login
+ * (die antwoordden met een redirect naar of een formulier met de slug).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -37,6 +43,11 @@ class MCM_Login_URL_Manager {
 
 		add_action( 'init', [ $this, 'handle_custom_slug' ], 1 );
 		add_action( 'wp_loaded', [ $this, 'block_wp_login' ] );
+		add_action( 'wp_loaded', [ $this, 'block_admin_for_guests' ] );
+		// Core stuurt /login, /admin en /dashboard door naar de loginpagina of
+		// wp-admin — voor een uitgelogde bezoeker precies de weg naar de slug.
+		remove_action( 'template_redirect', 'wp_redirect_admin_locations', 1000 );
+		add_action( 'template_redirect', [ $this, 'redirect_admin_locations_for_users' ], 1000 );
 		add_filter( 'login_url', [ $this, 'filter_login_url' ], 10, 3 );
 		add_filter( 'logout_url', [ $this, 'filter_logout_url' ], 10, 2 );
 		add_filter( 'lostpassword_url', [ $this, 'filter_lostpassword_url' ], 10, 2 );
@@ -120,19 +131,56 @@ class MCM_Login_URL_Manager {
 			return;
 		}
 
-		// Allow specific actions that need wp-login.php (password reset confirmations, etc.).
-		$allowed_actions = [ 'postpass', 'rp', 'resetpass', 'confirmaction' ];
-		if ( isset( $_GET['action'] ) && in_array( $_GET['action'], $allowed_actions, true ) ) {
-			return;
-		}
-
-		// Allow interim-login (modal login in admin).
-		if ( isset( $_GET['interim-login'] ) ) {
+		// Alleen postpass (wachtwoord-beveiligde berichten) blijft open: die
+		// stuurt terug naar de vorige pagina en noemt de slug nergens.
+		//
+		// rp, resetpass, confirmaction en interim-login waren hier ook
+		// uitgezonderd, maar lekten de slug: rp/resetpass zonder geldige
+		// sleutel (ook met een verzonnen key+login) redirecten naar
+		// ?action=lostpassword op de slug, interim-login toont een formulier
+		// met de slug als action. Ze zijn hier ook niet nodig: WordPress en
+		// plugins bouwen de reset-link, de bevestigingslink en de "sessie
+		// verlopen"-modal via site_url()/wp_login_url(), en die wijzen via
+		// onze filters al naar de slug.
+		if ( isset( $_GET['action'] ) && 'postpass' === $_GET['action'] ) {
 			return;
 		}
 
 		// Return a 404 for everything else.
 		$this->show_404();
+	}
+
+	/**
+	 * Uitgelogd /wp-admin/ → 404. Anders stuurt WordPress (auth_redirect)
+	 * een uitgelogde bezoeker door naar wp_login_url(), en die wijst via onze
+	 * eigen filter naar de slug: de slug staat dan in de Location-header.
+	 *
+	 * admin-ajax.php en admin-post.php blijven open: daar hangen frontend-
+	 * functies aan (nopriv-acties).
+	 *
+	 * Bewust een kale 404 via wp_die() en niet de 404-template van het thema:
+	 * binnen wp-admin is is_admin() true, en daar is een thema niet op
+	 * ingericht. wp_die() stuurt zelf de no-cache-headers.
+	 */
+	public function block_admin_for_guests() {
+		if ( ! is_admin() || wp_doing_ajax() || is_user_logged_in() ) {
+			return;
+		}
+		global $pagenow;
+		if ( in_array( $pagenow, [ 'admin-ajax.php', 'admin-post.php' ], true ) ) {
+			return;
+		}
+		wp_die( 'Pagina niet gevonden.', '404 Not Found', [ 'response' => 404 ] );
+	}
+
+	/**
+	 * Het core-gemak van /login, /admin en /dashboard alleen voor ingelogde
+	 * gebruikers; die kennen de slug al. Uitgelogd blijft het een gewone 404.
+	 */
+	public function redirect_admin_locations_for_users() {
+		if ( is_user_logged_in() ) {
+			wp_redirect_admin_locations();
+		}
 	}
 
 	/**

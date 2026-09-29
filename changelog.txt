@@ -1,5 +1,63 @@
 MCM Security Hardener — Changelog
 
+= 1.31.0 (2026-09-28) =
+* Fix: de login-slug lekte naar uitgelogde bezoekers (class-login-url-manager.php)
+  - Uitgelogd /wp-admin/ gaf via auth_redirect() een 302 naar de slug.
+    Gezien op mcmwebsites.nl, susenso.nl en stadsfondshilversum.nl. Nu een
+    kale 404 (wp_die, niet de theme-template: in wp-admin is is_admin()
+    true). admin-ajax.php en admin-post.php blijven open (nopriv-acties).
+  - /login, /admin en /dashboard: de core-redirect
+    (wp_redirect_admin_locations) werkt nu alleen nog voor ingelogde
+    gebruikers; uitgelogd is het een gewone 404.
+  - wp-login.php: de uitzonderingen rp, resetpass, confirmaction en
+    interim-login zijn weg. rp/resetpass redirecten zonder geldige sleutel
+    (ook met een verzonnen key+login) naar de slug, interim-login toont een
+    formulier met de slug. Ze zijn niet nodig: WordPress en plugins (o.a.
+    GF User Registration, Project Huddle, Sucuri) bouwen reset-, bevestigings-
+    en sessie-verlopen-links via site_url()/wp_login_url(), en die wijzen al
+    naar de slug. postpass blijft open. POST naar wp-login.php blijft
+    voorlopig toegestaan.
+  - Getest op een lokale testsite: vóór de fix lekten /wp-admin/, /login,
+    ?action=rp en ?interim-login=1 de slug, erna geven ze een 404 zonder
+    slug. De reset-flow via de slug en ingelogd gebruik werken zoals
+    voorheen.
+* Nieuw: scan-watchdog (class-scan-watchdog.php)
+  - Aanleiding: op parre-deden.nl lag WP-Cron 19-28 sep stil; de scans van
+    deze plugin draaiden negen dagen niet en niemand merkte het.
+  - Per scan wordt de laatste automatische run vastgelegd (eigen callback
+    op de cron-hook, prioriteit 999, dus alleen als de scan afrondt). "Nu
+    scannen" telt niet mee.
+  - De controle loopt niet via cron maar bij gewone requests, hooguit 1×
+    per 15 minuten. Te laat = langer dan 2× het interval geen run; alarm pas
+    als dat na 30 minuten nog zo is (geen vals alarm op rustige sites met
+    gewone WP-Cron).
+  - Alarm: admin-notice (MCM-eigenaars), max 1 mail per dag via de
+    Notifier, badge en rode regels in het dashboard. De mail noemt ook hoe
+    cron is ingericht en hoeveel taken achterstallig zijn. Lopen de scans
+    weer, dan verdwijnt alles vanzelf. Niet op staging.
+  - Nieuwe dashboard-sectie "Geplande scans". Uitzetten:
+    MCM_SECURITY_DISABLE_SCAN_WATCHDOG of filter
+    mcm_security_scan_watchdog_enabled.
+  - Opmerking: de update-checker controleert ook bij het openen van
+    wp-admin, dus plugin-updates komen bij een dode cron wel binnen zodra
+    iemand wp-admin opent.
+* Nieuw: wp-config-controle (class-config-check.php)
+  - Alleen op productie: AUTOMATIC_UPDATER_DISABLED, WP_AUTO_UPDATE_CORE =
+    false, DISALLOW_FILE_MODS (blokkeert ook de automatische core-updates),
+    WP_HTTP_BLOCK_EXTERNAL, SAVEQUERIES, SCRIPT_DEBUG, en constanten die in
+    wp-config.php opnieuw gedefinieerd worden (via PHP-tokens: commentaar,
+    ook "// MCM_DISABLED:", en defines met een defined()-check tellen niet).
+  - Knop "Klopt, dit is bewust" (MCM_Finding_Ignore, bron 'config'). De
+    sleutel bevat de waarde: een andere waarde geeft een nieuwe melding.
+    Verdwijnt een bevinding, dan vervalt ook de markering.
+  - Mail alleen als er een bevinding bij komt, niet als de lijst korter
+    wordt.
+  - WP_DEBUG blijft bij de debug-watchdog; DISABLE_WP_CRON is bewust geen
+    regel: of cron echt loopt, bewaakt de scan-watchdog.
+  - Uitzetten: MCM_SECURITY_DISABLE_CONFIG_CHECK of filter
+    mcm_security_config_check_enabled.
+* MCM_Finding_Ignore::ignore_url() voor de knop in notices en tabellen.
+
 = 1.30.0 (2026-09-28) =
 * Fix: /robots.txt gaf op alle sites een 403 (class-htaccess-manager.php)
   - Oorzaak: de regel block_log_txt_files (`<FilesMatch "\.(log|txt)$">`)

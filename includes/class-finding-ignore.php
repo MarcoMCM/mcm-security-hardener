@@ -123,6 +123,30 @@ class MCM_Finding_Ignore {
 	}
 
 	/**
+	 * URL van de "markeer"-knop voor één bevinding. Een GET-link met nonce,
+	 * zodat hij ook binnen een ander formulier of in een admin-notice werkt.
+	 *
+	 * @param string $source
+	 * @param array  $finding Moet 'path' bevatten.
+	 * @return string
+	 */
+	public static function ignore_url( $source, array $finding ) {
+		return wp_nonce_url(
+			add_query_arg(
+				[
+					'action'      => self::ACTION_IGNORE,
+					'mcm_source'  => rawurlencode( $source ),
+					'mcm_path'    => rawurlencode( $finding['path'] ),
+					'mcm_relpath' => rawurlencode( isset( $finding['relpath'] ) ? $finding['relpath'] : '' ),
+					'mcm_reason'  => rawurlencode( isset( $finding['reason'] ) ? $finding['reason'] : '' ),
+				],
+				admin_url( 'admin-post.php' )
+			),
+			self::ACTION_IGNORE
+		);
+	}
+
+	/**
 	 * Handler voor de "Markeer als veilig"-knop per bevindingsrij.
 	 */
 	public static function handle_ignore() {

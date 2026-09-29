@@ -662,6 +662,12 @@ class MCM_Admin_Page {
 				<span class="mcm-badge <?php echo $htaccess_active ? 'mcm-badge-active' : 'mcm-badge-inactive'; ?>">
 					.htaccess: <?php echo $htaccess_active ? 'Actief' : 'Niet actief'; ?>
 				</span>
+				<?php if ( class_exists( 'MCM_Scan_Watchdog' ) && MCM_Scan_Watchdog::is_enabled() ) : ?>
+					<?php $scans_late = MCM_Scan_Watchdog::has_alarm(); ?>
+					<a href="#mcm-scan-watchdog" class="mcm-badge <?php echo $scans_late ? 'mcm-badge-inactive' : 'mcm-badge-active'; ?>" style="text-decoration:none;">
+						Geplande scans: <?php echo $scans_late ? 'lopen achter' : 'op schema'; ?>
+					</a>
+				<?php endif; ?>
 			</div>
 
 			<form method="post">
@@ -773,6 +779,10 @@ class MCM_Admin_Page {
 				</div>
 				<?php endif; ?>
 
+				<?php $this->render_scan_watchdog_section(); ?>
+
+				<?php $this->render_config_check_section(); ?>
+
 				<!-- BLOOTGESTELDE BESTANDEN -->
 				<div class="mcm-section">
 					<h2>Blootgestelde bestanden</h2>
@@ -818,6 +828,7 @@ class MCM_Admin_Page {
 								<span style="color:#b32d2e;">&#9888; <?php echo (int) count( $findings ); ?> bevinding(en)</span>
 							<?php endif; ?>
 						</p>
+						<?php MCM_Scan_Watchdog::render_run_line( 'exposure' ); ?>
 						<?php
 						$meta = isset( $last['meta'] ) && is_array( $last['meta'] ) ? $last['meta'] : [];
 						if ( ! empty( $meta['uploads_capped'] ) ) :
@@ -884,6 +895,7 @@ class MCM_Admin_Page {
 					} else {
 						?>
 						<p><em>Nog geen scan uitgevoerd.</em></p>
+						<?php MCM_Scan_Watchdog::render_run_line( 'exposure' ); ?>
 						<?php
 					}
 					$this->render_ignored_list( 'exposure' );
@@ -933,6 +945,7 @@ class MCM_Admin_Page {
 								<span style="color:#b32d2e;">&#9888; <?php echo (int) count( $a_findings ); ?> bevinding(en)</span>
 							<?php endif; ?>
 						</p>
+						<?php MCM_Scan_Watchdog::render_run_line( 'anomaly' ); ?>
 						<?php if ( ! empty( $a_findings ) ) : ?>
 						<table class="widefat striped" style="margin-top:8px;">
 							<thead>
@@ -970,6 +983,7 @@ class MCM_Admin_Page {
 					} else {
 						?>
 						<p><em>Nog geen scan uitgevoerd.</em></p>
+						<?php MCM_Scan_Watchdog::render_run_line( 'anomaly' ); ?>
 						<?php
 					}
 					$this->render_ignored_list( 'anomaly' );
@@ -1017,6 +1031,7 @@ class MCM_Admin_Page {
 								<span style="color:#b32d2e;">&#9888; <?php echo (int) count( $c_findings ); ?> afwijking(en)</span>
 							<?php endif; ?>
 						</p>
+						<?php MCM_Scan_Watchdog::render_run_line( 'core_integrity' ); ?>
 						<?php if ( ! empty( $c_findings ) ) : ?>
 						<table class="widefat striped" style="margin-top:8px;">
 							<thead>
@@ -1043,6 +1058,7 @@ class MCM_Admin_Page {
 					} else {
 						?>
 						<p><em>Nog geen scan uitgevoerd.</em></p>
+						<?php MCM_Scan_Watchdog::render_run_line( 'core_integrity' ); ?>
 						<?php
 					}
 					$this->render_ignored_list( 'core_integrity' );
@@ -1100,6 +1116,7 @@ class MCM_Admin_Page {
 						debug.log: <?php echo $st['log_exists'] ? '<span style="color:#1e7e34;">aanwezig</span>' : '<span style="color:#646970;">ontbreekt (WP_DEBUG_LOG niet aan?)</span>'; ?>;
 						volgende cron: <?php echo $st['cron_next_run'] ? esc_html( wp_date( 'd-m-Y H:i', (int) $st['cron_next_run'] ) ) : '—'; ?>.
 					</p>
+					<?php MCM_Scan_Watchdog::render_run_line( 'php_error' ); ?>
 				</div>
 
 				<!-- HUMAN VERIFICATION -->
@@ -2338,28 +2355,132 @@ class MCM_Admin_Page {
 	 * als de bestaande "Nu scannen"- en downgrade-knoppen elders op deze
 	 * pagina.
 	 *
-	 * @param string $source  'exposure', 'anomaly' of 'core_integrity'.
+	 * @param string $source  'exposure', 'anomaly', 'core_integrity' of 'config'.
 	 * @param array  $finding Eén finding-record (moet 'path' bevatten).
+	 * @param string $label   Knoptekst.
 	 */
-	private function render_ignore_form( $source, array $finding ) {
+	private function render_ignore_form( $source, array $finding, $label = 'Markeer als veilig' ) {
 		if ( ! class_exists( 'MCM_Finding_Ignore' ) || empty( $finding['path'] ) ) {
 			return;
 		}
-		$url = wp_nonce_url(
-			add_query_arg(
-				[
-					'action'      => MCM_Finding_Ignore::ACTION_IGNORE,
-					'mcm_source'  => rawurlencode( $source ),
-					'mcm_path'    => rawurlencode( $finding['path'] ),
-					'mcm_relpath' => rawurlencode( isset( $finding['relpath'] ) ? $finding['relpath'] : '' ),
-					'mcm_reason'  => rawurlencode( isset( $finding['reason'] ) ? $finding['reason'] : '' ),
-				],
-				admin_url( 'admin-post.php' )
-			),
-			MCM_Finding_Ignore::ACTION_IGNORE
-		);
 		?>
-		<a href="<?php echo esc_url( $url ); ?>" class="button button-small">Markeer als veilig</a>
+		<a href="<?php echo esc_url( MCM_Finding_Ignore::ignore_url( $source, $finding ) ); ?>" class="button button-small"><?php echo esc_html( $label ); ?></a>
+		<?php
+	}
+
+	/**
+	 * Geplande scans (MCM_Scan_Watchdog): per scan de laatste automatische
+	 * run, plus hoe cron op deze site draait.
+	 */
+	private function render_scan_watchdog_section() {
+		if ( ! class_exists( 'MCM_Scan_Watchdog' ) ) {
+			return;
+		}
+		?>
+		<div class="mcm-section" id="mcm-scan-watchdog">
+			<h2>Geplande scans</h2>
+			<p class="description">
+				De scans hieronder draaien via WP-Cron. Draait cron niet (bv. <code>DISABLE_WP_CRON</code> zonder werkende servercron), dan draaien de scans ook niet. Bij gewone bezoeken wordt gekeken of de laatste automatische run niet ouder is dan 2&times; het interval; is hij dat na een half uur nog steeds, dan volgt een melding en maximaal 1 mail per dag. &ldquo;Nu scannen&rdquo; telt hier bewust niet mee.
+			</p>
+			<?php if ( ! MCM_Scan_Watchdog::is_enabled() ) : ?>
+				<p><em>Uitgeschakeld via <code>MCM_SECURITY_DISABLE_SCAN_WATCHDOG</code> of de filter <code>mcm_security_scan_watchdog_enabled</code>.</em></p>
+			<?php else : ?>
+				<table class="widefat striped" style="margin-top:8px;">
+					<thead>
+						<tr>
+							<th>Scan</th>
+							<th style="width:100px;">Interval</th>
+							<th style="width:190px;">Laatste automatische run</th>
+							<th style="width:140px;">Gepland voor</th>
+							<th style="width:220px;">Status</th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( MCM_Scan_Watchdog::status() as $s ) : ?>
+						<tr>
+							<td><?php echo esc_html( $s['label'] ); ?></td>
+							<td><?php echo esc_html( MCM_Scan_Watchdog::interval_label( $s['interval'] ) ); ?></td>
+							<td><?php echo $s['last_run'] ? esc_html( wp_date( 'd-m-Y H:i', $s['last_run'] ) ) : '<span style="color:#646970;">nog niet vastgelegd</span>'; ?></td>
+							<td>
+								<?php
+								// Een geplande tijd ruim in het verleden = cron pakt hem niet op.
+								$overdue = $s['next_run'] && $s['next_run'] < time() - 10 * MINUTE_IN_SECONDS;
+								echo $s['next_run']
+									? '<span style="color:' . ( $overdue ? '#b32d2e' : 'inherit' ) . ';">' . esc_html( wp_date( 'd-m-Y H:i', $s['next_run'] ) ) . '</span>'
+									: '—';
+								?>
+							</td>
+							<td>
+								<?php if ( ! $s['enabled'] ) : ?>
+									<span style="color:#646970;">uit</span>
+								<?php elseif ( $s['alarm'] ) : ?>
+									<span style="color:#b32d2e;">&#9888; loopt achter</span>
+								<?php elseif ( $s['late'] ) : ?>
+									<span style="color:#bd8600;">over tijd, nog even afwachten</span>
+								<?php else : ?>
+									<span style="color:#1e7e34;">&#10003; op schema</span>
+								<?php endif; ?>
+							</td>
+						</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+				<?php $cron = MCM_Scan_Watchdog::cron_context(); ?>
+				<p style="margin-top:8px;">
+					<strong>Cron op deze site:</strong> <?php echo esc_html( $cron['mode'] ); ?>.
+					Achterstallige geplande taken (alle plugins): <?php echo (int) $cron['overdue']; ?><?php if ( $cron['oldest'] ) : ?>; oudste: <code><?php echo esc_html( $cron['oldest_hook'] ); ?></code>, gepland voor <?php echo esc_html( wp_date( 'd-m-Y H:i', $cron['oldest'] ) ); ?><?php endif; ?>.
+				</p>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * wp-config-controle (MCM_Config_Check) met per bevinding de knop
+	 * "Klopt, dit is bewust".
+	 */
+	private function render_config_check_section() {
+		if ( ! class_exists( 'MCM_Config_Check' ) ) {
+			return;
+		}
+		?>
+		<div class="mcm-section" id="mcm-config-check">
+			<h2>wp-config-controle</h2>
+			<p class="description">
+				Instellingen die de site stilletjes kwetsbaarder of trager maken: automatische (beveiligings)updates uit, <code>DISALLOW_FILE_MODS</code>, geblokkeerd uitgaand verkeer, <code>SAVEQUERIES</code> of <code>SCRIPT_DEBUG</code> op productie en constanten die twee keer in wp-config.php staan. Alleen op productie. Is iets bewust, klik dan &ldquo;Klopt, dit is bewust&rdquo;: je hoort er pas weer van als de waarde verandert.
+			</p>
+			<p class="description">
+				<code>WP_DEBUG</code> valt onder de debug-melding; <code>DISABLE_WP_CRON</code> onder <a href="#mcm-scan-watchdog">Geplande scans</a>, die kijkt of cron écht loopt.
+			</p>
+			<?php if ( ! MCM_Config_Check::is_enabled() ) : ?>
+				<p><em>Niet actief: staging, of uitgeschakeld via <code>MCM_SECURITY_DISABLE_CONFIG_CHECK</code> of de filter <code>mcm_security_config_check_enabled</code>.</em></p>
+			<?php else : ?>
+				<?php $cfg = MCM_Config_Check::findings(); ?>
+				<?php if ( empty( $cfg ) ) : ?>
+					<p><span style="color:#1e7e34;">&#10003; Niets gevonden.</span></p>
+				<?php else : ?>
+					<table class="widefat striped" style="margin-top:8px;">
+						<thead>
+							<tr>
+								<th style="width:320px;">Instelling</th>
+								<th>Waarom</th>
+								<th style="width:170px;">Actie</th>
+							</tr>
+						</thead>
+						<tbody>
+							<?php foreach ( $cfg as $f ) : ?>
+							<tr>
+								<td><code><?php echo esc_html( $f['relpath'] ); ?></code></td>
+								<td><?php echo esc_html( $f['reason'] ); ?></td>
+								<td><?php $this->render_ignore_form( MCM_Config_Check::SOURCE, $f, 'Klopt, dit is bewust' ); ?></td>
+							</tr>
+							<?php endforeach; ?>
+						</tbody>
+					</table>
+				<?php endif; ?>
+			<?php endif; ?>
+			<?php $this->render_ignored_list( MCM_Config_Check::SOURCE ); ?>
+		</div>
 		<?php
 	}
 

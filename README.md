@@ -15,13 +15,13 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 |---|---|
 | **wp-config / .htaccess hardening** | `DISALLOW_FILE_EDIT`, blokkade van PHP-execution in `/uploads/`, `XML-RPC` dicht, geen directory listing, etc. |
 | **Plugin/theme lockdown** | Voorkomt dat klant-admins onverwacht plugins installeren of de theme-editor gebruiken |
-| **Custom login URL** | Verbergt `/wp-login.php` achter een eigen slug |
+| **Custom login URL** | Verbergt `/wp-login.php` achter een eigen slug. Uitgelogd geven `/wp-admin/` (behalve `admin-ajax.php`/`admin-post.php`), `/login`, `/admin`, `/dashboard` en alle `wp-login.php`-routes (behalve `postpass`) een 404, zodat de slug nergens uitlekt |
 | **Human Verification** | CSS-checkbox die zichzelf aanvinkt; blokkeert bots die direct submitten — werkt op login, register, lost-password én op WooCommerce my-account |
 | **Registratiebescherming** | Honeypot-veld + wegwerpdomein-filter op registratieformulieren (WP + WooCommerce), plus blokkade van gereserveerde gebruikersnamen (`admin`, `root`, `beheerder`, …) via WordPress' eigen `illegal_user_logins` — dekt ook WooCommerce-registratie en handmatig aanmaken |
 | **HTTP Basic Auth voor staging** | Een laag wachtwoord vóór de hele site, alleen actief op staging-omgevingen |
 | **Gebruikersnamen afschermen** | Zet de vier routes dicht waarlangs WordPress logins weggeeft (`?author=1`, REST `/wp/v2/users`, oEmbed, users-sitemap) + een generieke loginfout, zodat een mislukte login niet verklapt of de gebruikersnaam bestaat. Auteursarchieven blijven werken |
 | **Archieven in uploads blokkeren** | Optionele `.htaccess`-regel: 403 op directe download van zip/rar/7z/tar.gz/sql/bak uit `/uploads/`, met uitzondering van `woocommerce_uploads` en AVG-exports |
-| **Inhoud blijft bij gebruiker verwijderen** | Verwijder je een gebruiker met "alle inhoud verwijderen" (of via WP-CLI/code zonder `--reassign`), dan verwijdert WordPress normaal al zijn pagina's, berichten en media. Deze module houdt dat tegen: het account gaat weg, de inhoud gaat naar de beheerder die het deed (anders een MCM-eigenaar of de eerste admin). Eén mail per verzoek, ook bij een batch. Revisies, automatische concepten en prullenbak mogen wel mee. Aanleiding: powair.nl, juni 2026 (171 items weg met één account) |
+| **Inhoud blijft bij gebruiker verwijderen** | Verwijder je een gebruiker met "alle inhoud verwijderen" (of via WP-CLI/code zonder `--reassign`), dan verwijdert WordPress normaal al zijn pagina's, berichten en media. Deze module houdt dat tegen: het account gaat weg, de inhoud gaat naar de beheerder die het deed (anders een MCM-eigenaar of de eerste admin). Eén mail per verzoek, ook bij een batch. Heeft een account alleen revisies, automatische concepten of prullenbak, dan mag WordPress die gewoon verwijderen. Aanleiding: powair.nl, juni 2026 (171 items weg met één account) |
 | **Database prefix-migratie** | Detecteert default `wp_` + biedt veilige random-prefix-migratie incl. SQL-backup en rollback |
 
 ### 🔎 Detecteren & rapporteren
@@ -35,12 +35,14 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | **Snippet Monitor** | Real-time mail bij elke nieuwe of gewijzigde WPCode/Insert Headers and Footers-snippet (hook `save_post_wpcode`), ongeacht publish/draft-status — code-snippets zijn onzichtbaar voor bestandsscans, want ze staan in de database. MCM-eigenaars uitgezonderd. No-op zonder die plugin |
 | **Core Integrity Scanner** | Wekelijkse checksum-vergelijking van élk WordPress-kernbestand (root, `wp-admin/`, `wp-includes/`) tegen de officiële versie van WordPress.org — zelfde principe als `wp core verify-checksums`, automatisch. Elke afwijking of ontbrekend bestand is HIGH, direct gemaild. Detectie-only; de mail bevat het herstel-commando |
 | **PHP Error Watcher** | Uurlijkse monitor van `debug.log`; mailt direct bij fatal/parse. Warning/deprecated tellen alleen mee voor de drempel als ze uit eigen code komen (core/systeem = ruis, alarmeert niet). Extra gevoelig 7 dagen na een PHP-versie-wissel |
+| **Scan-watchdog** | Legt per scan de laatste automatische run vast en kijkt bij gewone bezoeken (niet via cron) of die niet ouder is dan 2× het interval. Zo ja, en na een half uur nog steeds: admin-notice, max 1 mail per dag en een rode regel in het dashboard. "Nu scannen" telt niet mee. Aanleiding: parre-deden.nl, sep 2026 (cron 9 dagen stil, niemand merkte het) |
+| **wp-config-controle** | Eenmalige melding bij `AUTOMATIC_UPDATER_DISABLED`, `WP_AUTO_UPDATE_CORE=false`, `DISALLOW_FILE_MODS`, `WP_HTTP_BLOCK_EXTERNAL`, `SAVEQUERIES`/`SCRIPT_DEBUG` op productie en constanten die dubbel in wp-config.php staan. Knop "Klopt, dit is bewust"; een andere waarde geeft een nieuwe melding |
 | **Toolbar-snelkoppeling** | "MCM Security" in de WP-adminbar (front + admin, alleen admins); kleurt rood als de anomalie-scan uit staat, met 1-klik aan/uit-toggle |
 | **User Audit** | Lijst van alle users met rol Administrator/Editor/Author/Contributor met 1-klik downgrade naar de MCM Klant-rol (mits Site Optimizer aanwezig) of naar Subscriber |
 | **Risico op gebruikersnamen** | Voor accounts met **verhoogde rechten**: vlagt voorspelbare logins (`admin`, `test`, de domeinnaam van de site, …) en profielen waarvan de weergavenaam gelijk is aan de login — die staat anders onder elke post. Weergavenaam met 1 klik los te maken; hernoemen doet de plugin bewust niet. Klantaccounts met zo'n naam worden alleen gesignaleerd, met doorverwijzing naar de nep-/botaccountmodule van de Site Optimizer |
 | **WP major-update compat-check** | Bij een aankomende major WP-update: vergelijkt de "Tested up to" van alle actieve plugins en toont per plugin Compatibel / Niet getest / Onbekend |
 | **Notifier** | Alle plugin-mails en admin-notices gaan naar het centrale notificatie-adres (default `marco@mcmwebsites.nl`), niet naar de klant |
-| **Markeer als veilig** | Knop per bevindingsrij in File Exposure Scanner en Anomaly Scanner — verwijdert 'm permanent uit tabel én mail, tot je 'm terugzet via "Genegeerde bevindingen" onderaan de tabel. Identificatie op het volledige pad, dus een normale update van hetzelfde bestand zet de markering niet stilzwijgend weer aan |
+| **Markeer als veilig** | Knop per bevindingsrij in File Exposure Scanner, Anomaly Scanner, Core Integrity Scanner en de wp-config-controle (daar: "Klopt, dit is bewust") — verwijdert 'm permanent uit tabel én mail, tot je 'm terugzet via "Genegeerde bevindingen" onderaan de tabel. Identificatie op het volledige pad, dus een normale update van hetzelfde bestand zet de markering niet stilzwijgend weer aan |
 
 ### 🚀 Distributie
 
@@ -90,6 +92,12 @@ define( 'MCM_SECURITY_ALLOW_USER_CONTENT_DELETE', true );
 
 // Schakel de WP_DEBUG productie-watchdog uit (bv. op dev-omgevingen waar WP_DEBUG bewust aan staat)
 define( 'MCM_SECURITY_DISABLE_DEBUG_WATCHDOG', true );
+
+// Schakel de scan-watchdog uit (geen melding als de geplande scans niet draaien)
+define( 'MCM_SECURITY_DISABLE_SCAN_WATCHDOG', true );
+
+// Schakel de wp-config-controle uit
+define( 'MCM_SECURITY_DISABLE_CONFIG_CHECK', true );
 ```
 
 ### Beschikbare filters
@@ -101,6 +109,8 @@ define( 'MCM_SECURITY_DISABLE_DEBUG_WATCHDOG', true );
 | `mcm_security_notify_email` | Notificatie-email override |
 | `mcm_blocked_email_domains` | Wegwerpdomein-lijst uitbreiden |
 | `mcm_security_debug_watchdog_enabled` | WP_DEBUG-watchdog uitschakelen |
+| `mcm_security_scan_watchdog_enabled` | Scan-watchdog uitschakelen |
+| `mcm_security_config_check_enabled` | wp-config-controle uitschakelen |
 | `mcm_user_delete_guard_enabled` | User Delete Guard per gebruiker uitschakelen (`$enabled, $user_id`) |
 | `mcm_anomaly_root_whitelist` | Bekende root-items voor de anomalie-scan (lowercase namen) |
 | `mcm_anomaly_wpcontent_whitelist` | Bekende `wp-content`-items voor de anomalie-scan |
@@ -127,6 +137,7 @@ mcm-security-hardener/
 │   ├── class-admin-page.php           Tools → MCM Security UI
 │   ├── class-wpconfig-manager.php     Schrijft constants naar wp-config.php
 │   ├── class-htaccess-manager.php     Schrijft regels naar .htaccess
+│   ├── class-upgrader.php             Eenmalige migratie na een plugin-update
 │   ├── class-lockdown-manager.php     Plugin/theme lockdown + owner-detectie
 │   ├── class-login-url-manager.php    Custom login slug
 │   ├── class-human-verification.php   Anti-bot via CSS-checkbox
@@ -148,6 +159,8 @@ mcm-security-hardener/
 │   ├── class-core-integrity-scanner.php  Checksum-vergelijking kernbestanden vs. WordPress.org
 │   ├── class-admin-bar.php            Toolbar-snelkoppeling + scan aan/uit-toggle
 │   ├── class-php-error-watcher.php    debug.log-monitor met herkomst-filtering
+│   ├── class-scan-watchdog.php        Melding als de geplande scans niet meer draaien
+│   ├── class-config-check.php         wp-config-controle met "Klopt, dit is bewust"
 │   ├── class-profiles.php             Basic/Standard/Strict/Staging-profielen
 │   ├── class-finding-ignore.php        "Markeer als veilig" — gedeelde ignore-lijst
 │   └── class-notifier.php             Centrale email/notice-helper
