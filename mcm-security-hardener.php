@@ -188,11 +188,12 @@ final class MCM_Security_Hardener {
 			// File exposure scanner
 			'exposure_scanner_enabled'         => true,
 			'block_risky_files_via_htaccess'   => false,
-			// Niveau 2 + 3 van de exposure-scanner (detectie staat aan, het
+			// Niveau 2 t/m 4 van de exposure-scanner (detectie staat aan, het
 			// blokkeren is opt-in: een .htaccess-block op archieven kan een
 			// legitieme download uit uploads breken).
 			'exposure_scan_uploads'            => true,
 			'exposure_scan_above_root'         => true,
+			'exposure_scan_backup_dirs'        => true,
 			'block_archives_in_uploads'        => false,
 
 			// Gebruikersnaam-enumeratie dichtzetten

@@ -537,7 +537,7 @@ class MCM_Admin_Page {
 			// file exposure scanner
 			'exposure_scanner_enabled', 'block_risky_files_via_htaccess',
 			'exposure_scan_uploads', 'exposure_scan_above_root',
-			'block_archives_in_uploads',
+			'exposure_scan_backup_dirs', 'block_archives_in_uploads',
 			// gebruikersnaam-enumeratie
 			'block_author_enumeration', 'restrict_rest_users',
 			'hide_authors_in_oembed', 'remove_users_sitemap',
@@ -790,10 +790,11 @@ class MCM_Admin_Page {
 						Wekelijkse filesystem-scan naar losse "test"-bestanden die per ongeluk publiek bereikbaar zijn (info.php met phpinfo(), .env, wp-config-backups, SQL-dumps, Adminer, phpMyAdmin, etc.). Detecteert ook .php-bestanden die <code>phpinfo()</code> aanroepen.
 					</p>
 					<p class="description">
-						De scan draait op drie niveaus: <strong>webroot</strong> (root + wp-content, bovenste niveau), <strong>uploads</strong> (recursief, op archieven en dumps) en <strong>boven de webroot</strong> (achtergelaten werkbestanden in de map boven de site).
+						De scan draait op vier niveaus: <strong>webroot</strong> (root + wp-content, bovenste niveau), <strong>uploads</strong> (recursief, op archieven en dumps), <strong>back-upmappen</strong> (recursief, de mappen die back-upplugins in wp-content aanmaken) en <strong>boven de webroot</strong> (achtergelaten werkbestanden in de map boven de site).
 					</p>
 					<p class="description">
-						<strong>Severity</strong>: <span style="color:#b32d2e;">HIGH</span> = publiek bereikbare dump of een wp-config-kopie, <span style="color:#bd8600;">MEDIUM</span> = publiek bereikbaar archief, <span style="color:#646970;">LOW</span> = afgeschermd of boven de webroot (alleen rommel). Alleen HIGH/MEDIUM sturen een mail.
+						<strong>Severity</strong>: <span style="color:#b32d2e;">HIGH</span> = publiek bereikbare dump, back-uparchief of wp-config-kopie, <span style="color:#bd8600;">MEDIUM</span> = publiek bereikbaar archief, <span style="color:#646970;">LOW</span> = afgeschermd of boven de webroot (alleen rommel). Alleen HIGH/MEDIUM sturen een mail.
+						&ldquo;Afgeschermd&rdquo; wordt waar mogelijk getest met een HEAD-verzoek (alleen kopregels, er wordt niets gedownload); een deny-<code>.htaccess</code> telt alleen op Apache/LiteSpeed, niet op nginx.
 					</p>
 					<p class="description">
 						<strong>Geen automatisch verwijderen</strong> &mdash; alleen melden via admin-notice + mail naar de notify-bestemming. Verwijderen blijft een bewuste handeling.
@@ -801,7 +802,8 @@ class MCM_Admin_Page {
 					<table class="form-table">
 						<?php
 						$this->render_toggle( 'exposure_scanner_enabled', 'Wekelijkse scan inschakelen', 'Plant een wp-cron-job die wekelijks de webroot scant. Bij nieuwe bevindingen krijg je een mail.', $settings );
-						$this->render_toggle( 'exposure_scan_uploads', 'Uploads meescannen (recursief)', 'Zoekt archieven en dumps (zip, rar, 7z, tar.gz, sql, bak) in de hele mediabibliotheek &mdash; precies waar een vergeten plugin-zip of database-dump belandt. Een map met een deny-<code>.htaccess</code> (zoals onze eigen backup-map) telt als afgeschermd en zakt naar LOW. <code>woocommerce_uploads</code> en cache-mappen worden overgeslagen.', $settings );
+						$this->render_toggle( 'exposure_scan_uploads', 'Uploads meescannen (recursief)', 'Zoekt archieven en dumps (zip, rar, 7z, tar.gz, sql, bak) in de hele mediabibliotheek &mdash; precies waar een vergeten plugin-zip of database-dump belandt. Een map met een deny-<code>.htaccess</code> (zoals onze eigen backup-map) telt als afgeschermd en zakt naar LOW &mdash; behalve op nginx, waar <code>.htaccess</code> niets doet. <code>woocommerce_uploads</code> en cache-mappen worden overgeslagen.', $settings );
+						$this->render_toggle( 'exposure_scan_backup_dirs', 'Back-upmappen in wp-content meescannen', 'Zoekt archieven in de mappen die back-upplugins direct in <code>wp-content</code> aanmaken (WPvivid, UpdraftPlus, All-in-One WP Migration, Duplicator, BackupGuard, Envato) en in elke andere map daar met &ldquo;backup&rdquo; in de naam. Een publiek back-uparchief is HIGH (bevat meestal database en wp-config); oude plugin-versies in WPvivid <code>rollback/</code> zijn MEDIUM.', $settings );
 						$this->render_toggle( 'exposure_scan_above_root', 'Map boven de webroot meescannen', 'Kijkt &eacute;&eacute;n niveau boven de site (op Xel de home-map van de hostingaccount) naar losse archieven, backups en <code>.php</code>-scripts. Niet publiek bereikbaar, dus LOW &mdash; behalve een wp-config-kopie, die is HIGH omdat er DB-credentials en salts in staan.', $settings );
 						$this->render_toggle( 'block_archives_in_uploads', 'Archieven in uploads blokkeren (.htaccess)', '403 op elke directe download van een archief of dump uit <code>wp-content/uploads</code>, dus ook op een zip die er morgen wordt neergezet. <strong>Let op:</strong> dit breekt een legitieme zip-download uit de mediabibliotheek. <code>woocommerce_uploads</code> (downloadbare producten) en <code>wp-personal-data-exports</code> (AVG-exports) zijn uitgezonderd. Alleen Apache.', $settings );
 						$this->render_toggle( 'block_risky_files_via_htaccess', 'Risico-bestanden ook via .htaccess blokkeren', 'Voegt een Apache FilesMatch-blok toe dat directe HTTP-toegang tot info.php, *.sql, .env, wp-config backups, etc. weigert. Werkt alleen op Apache &mdash; op nginx geen effect.', $settings );
@@ -850,6 +852,21 @@ class MCM_Admin_Page {
 							</p>
 							<?php
 						endif;
+						if ( ! empty( $meta['backup_dirs_capped'] ) ) :
+							?>
+							<p class="description" style="color:#bd8600;">
+								<strong>&#9888; Back-upmappen-scan afgekapt</strong> (tijdslimiet van <?php echo (int) MCM_File_Exposure_Scanner::MAX_BACKUP_DIRS_SECONDS; ?> sec bereikt).
+								Niet alle back-upmappen zijn doorlopen &mdash; dit resultaat is dus incompleet.
+							</p>
+							<?php
+						endif;
+						foreach ( MCM_File_Exposure_Scanner::reachability_notes( $meta ) as $note ) :
+							?>
+							<p class="description"<?php echo 'warn' === $note[0] ? ' style="color:#bd8600;"' : ''; ?>>
+								<?php echo esc_html( $note[1] ); ?>
+							</p>
+							<?php
+						endforeach;
 						?>
 						<?php if ( ! empty( $findings ) ) : ?>
 						<table class="widefat striped" style="margin-top:8px;">
@@ -861,7 +878,7 @@ class MCM_Admin_Page {
 									<th style="width:110px;">Waar</th>
 									<th style="width:90px;">Grootte</th>
 									<th style="width:120px;">Laatst gew.</th>
-									<th style="width:80px;">Publiek?</th>
+									<th style="width:110px;">Publiek?</th>
 									<th style="width:130px;">Actie</th>
 								</tr>
 							</thead>
@@ -880,7 +897,7 @@ class MCM_Admin_Page {
 									</td>
 									<td><?php echo esc_html( size_format( (int) $f['size'] ) ); ?></td>
 									<td><?php echo $f['mtime'] ? esc_html( wp_date( 'd-m-Y', (int) $f['mtime'] ) ) : '—'; ?></td>
-									<td><?php echo ! empty( $f['public_guess'] ) ? '<span style="color:#b32d2e;">ja</span>' : '<span style="color:#646970;">nee</span>'; ?></td>
+									<td><span style="color:<?php echo ! empty( $f['public_guess'] ) ? '#b32d2e' : '#646970'; ?>;"><?php echo esc_html( MCM_File_Exposure_Scanner::public_label( $f ) ); ?></span></td>
 									<td><?php $this->render_ignore_form( 'exposure', $f ); ?></td>
 								</tr>
 								<?php endforeach; ?>
@@ -2567,6 +2584,7 @@ class MCM_Admin_Page {
 			'exposure_scanner_enabled'       => [ 'aan', 'Detectie-only; verwijdert nooit zelf.' ],
 			'exposure_scan_uploads'          => [ 'aan', 'Draait binnen een tijdslimiet van 20 sec, ook op een grote mediabibliotheek.' ],
 			'exposure_scan_above_root'       => [ 'aan', 'Uit als de host het lezen van de map boven de webroot blokkeert &mdash; dat meldt de scanner dan zelf.' ],
+			'exposure_scan_backup_dirs'      => [ 'aan', 'Meestal een paar honderd bestanden; tijdslimiet van 10 sec.' ],
 			'anomaly_scanner_enabled'        => [ 'aan', 'Tijdelijk uit tijdens groot eigen werk in de webroot; de toolbar kleurt rood zolang hij uit staat.' ],
 			'php_error_watcher_enabled'      => [ 'aan', 'Uit alleen als een andere monitoring dit al doet.' ],
 

@@ -66,6 +66,25 @@ class MCM_Upgrader {
 			'1.31.1' => [
 				'wpconfig_repair' => true,
 			],
+			// Exposure-scanner: het nieuwe back-upmappen-niveau, plus de twee
+			// niveaus uit 1.21.0 die op oudere sites nooit in de DB zijn gezet.
+			// De scanner valt bij een ontbrekende sleutel al terug op "aan",
+			// maar het dashboard toonde de schakelaar dan uit, en één keer
+			// opslaan zette het niveau ongemerkt uit. Alleen detectie, dus
+			// aanvullen zet geen regels aan.
+			'1.32.0' => [
+				'settings' => function ( $settings ) {
+					if ( ! is_array( $settings ) ) {
+						return $settings;
+					}
+					foreach ( [ 'exposure_scan_uploads', 'exposure_scan_above_root', 'exposure_scan_backup_dirs' ] as $key ) {
+						if ( ! array_key_exists( $key, $settings ) ) {
+							$settings[ $key ] = true;
+						}
+					}
+					return $settings;
+				},
+			],
 		];
 	}
 

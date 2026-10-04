@@ -29,7 +29,7 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | Feature | Wat |
 |---|---|
 | **WP_DEBUG productie-watchdog** | Detecteert `WP_DEBUG=true` op productie-omgevingen → admin-notice + 1×/24u mail naar de eigenaar |
-| **File Exposure Scanner** | Wekelijkse filesystem-scan op drie niveaus: **webroot** (info.php/phpinfo(), `.env`, wp-config-backups, SQL-dumps, Adminer, phpMyAdmin), **uploads recursief** (archieven en dumps — vindt de vergeten plugin-zip in `uploads/2023/01/`) en **boven de webroot** (achtergelaten `.bak`/`.tar.gz`/scripts). Herkent een deny-`.htaccess` als afscherming, dus een correct afgeschermde backup-map is geen lek. Severity-tiers, mail alleen bij HIGH/MEDIUM, detectie-only |
+| **File Exposure Scanner** | Wekelijkse filesystem-scan op vier niveaus: **webroot** (info.php/phpinfo(), `.env`, wp-config-backups, SQL-dumps, Adminer, phpMyAdmin), **uploads recursief** (archieven en dumps — vindt de vergeten plugin-zip in `uploads/2023/01/`), **back-upmappen in wp-content** (WPvivid, UpdraftPlus, All-in-One WP Migration, Duplicator, … — vindt o.a. WPvivid's `rollback/` met oude betaalde plugin-versies) en **boven de webroot** (achtergelaten `.bak`/`.tar.gz`/scripts). Een deny-`.htaccess` telt als afscherming, maar alleen op Apache/LiteSpeed, niet op nginx. Waar mogelijk bevestigt een HEAD-verzoek (alleen kopregels, nooit op PHP-bestanden) of een bestand echt publiek is. Severity-tiers, mail alleen bij HIGH/MEDIUM, detectie-only |
 | **Anomaly Scanner** | Wekelijkse scan van root + `wp-content` (top-level) op onbekende bestanden/mappen via whitelist, plús baseline-diff (geen whitelist — verschilt per site) voor `wp-content/plugins`, `wp-content/mu-plugins` én PHP-type WPCode-snippets in de database. Severity-tiers (HIGH = los `.php`/shell, nieuw mu-plugin-item of nieuwe PHP-snippet, MEDIUM = onbekende root-map of nieuw item in `plugins/`, LOW = info). Mailt alleen bij HIGH/MEDIUM, detectie-only |
 | **New Admin Alert** | Real-time mail zodra een account de rol Administrator krijgt (hook `set_user_role`) — ongeacht of dat via het registratieformulier, wp-admin, wp-cli of een script gaat dat WordPress' eigen user-API gebruikt. MCM-eigenaars uitgezonderd. Vangt geen rechtstreekse database-writes buiten die API om |
 | **Snippet Monitor** | Real-time mail bij elke nieuwe of gewijzigde WPCode/Insert Headers and Footers-snippet (hook `save_post_wpcode`), ongeacht publish/draft-status — code-snippets zijn onzichtbaar voor bestandsscans, want ze staan in de database. MCM-eigenaars uitgezonderd. No-op zonder die plugin |
@@ -114,8 +114,10 @@ define( 'MCM_SECURITY_DISABLE_CONFIG_CHECK', true );
 | `mcm_user_delete_guard_enabled` | User Delete Guard per gebruiker uitschakelen (`$enabled, $user_id`) |
 | `mcm_anomaly_root_whitelist` | Bekende root-items voor de anomalie-scan (lowercase namen) |
 | `mcm_anomaly_wpcontent_whitelist` | Bekende `wp-content`-items voor de anomalie-scan |
-| `mcm_exposure_archive_regex` | Welke extensies gelden als archief/dump in de uploads- en boven-webroot-scan |
+| `mcm_exposure_archive_regex` | Welke extensies gelden als archief/dump in de uploads-, back-upmappen- en boven-webroot-scan |
 | `mcm_exposure_uploads_skip_dirs` | Mapnamen die de uploads-scan overslaat (default: `woocommerce_uploads` + cache-mappen) |
+| `mcm_exposure_backup_dirs` | Bekende back-upmappen in wp-content (`mapnaam => plugin`); daarnaast telt elke map daar met "backup" in de naam |
+| `mcm_exposure_http_probe` | `false` zet de HTTP-controle (HEAD-verzoek per groep bevindingen) uit |
 | `mcm_security_risky_login_names` | Gebruikersnamen die als voorspelbaar gelden (default: `admin` & co + de domeinnaam) |
 | `mcm_security_reserved_logins` | Gebruikersnamen die geweigerd worden bij registratie (harde lijst, zonder de domeinnaam) |
 | `mcm_php_error_watcher_own_paths` | Pad-fragmenten die als "eigen code" gelden voor de error-drempel |
@@ -152,7 +154,7 @@ mcm-security-hardener/
 │   ├── class-user-delete-guard.php    Inhoud nooit meeverwijderen met een gebruiker
 │   ├── class-update-compat-check.php  WP-update plugin-compat tabel
 │   ├── class-backend-access.php       Skip email-confirm + non-admin backend-block
-│   ├── class-file-exposure-scanner.php  Scan op blootgestelde bestanden (webroot + uploads + boven webroot)
+│   ├── class-file-exposure-scanner.php  Scan op blootgestelde bestanden (webroot + uploads + back-upmappen + boven webroot)
 │   ├── class-user-enumeration.php       Gebruikersnamen afschermen (author/REST/oEmbed/sitemap/loginfout)
 │   ├── class-anomaly-scanner.php      Scan op vreemde bestanden/mappen (whitelist + plugin-/snippet-baseline-diff)
 │   ├── class-snippet-monitor.php      Real-time mail bij nieuwe/gewijzigde WPCode-snippet

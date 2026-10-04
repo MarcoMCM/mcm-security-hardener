@@ -65,11 +65,12 @@ class MCM_Profiles {
 			'block_reserved_logins'     => true,
 			// backend toegang
 			'skip_admin_email_confirmation' => true,
-			// file exposure scanner (detectie op alle drie de niveaus; het
+			// file exposure scanner (detectie op alle niveaus; het
 			// .htaccess-blokkeren zit alleen in Strict)
 			'exposure_scanner_enabled'      => true,
 			'exposure_scan_uploads'         => true,
 			'exposure_scan_above_root'      => true,
+			'exposure_scan_backup_dirs'     => true,
 			// gebruikersnaam-enumeratie dichtzetten — geen impact op API's of
 			// integraties, dus veilig voor elke site
 			'block_author_enumeration'      => true,
@@ -232,7 +233,7 @@ class MCM_Profiles {
 			// file exposure scanner
 			'exposure_scanner_enabled', 'block_risky_files_via_htaccess',
 			'exposure_scan_uploads', 'exposure_scan_above_root',
-			'block_archives_in_uploads',
+			'exposure_scan_backup_dirs', 'block_archives_in_uploads',
 			// gebruikersnaam-enumeratie
 			'block_author_enumeration', 'restrict_rest_users',
 			'hide_authors_in_oembed', 'remove_users_sitemap',

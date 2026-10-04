@@ -1,5 +1,85 @@
 MCM Security Hardener — Changelog
 
+= 1.32.0 (nog niet uitgebracht) =
+* Exposure-scanner: back-upmappen in wp-content, nginx-bewust, HTTP-controle
+  (class-file-exposure-scanner.php)
+  - Aanleiding: op pensioenfonds-sagittarius.nl (Plesk, "FPM served by
+    nginx") gaf wp-content/wpvividbackups/rollback/plugins/<slug>/<versie>/
+    <slug>.zip op 4 okt 2026 200 application/zip: 262 MB oude plugin-versies,
+    ook betaalde (WP Rocket, Gravity Forms, WPvivid Pro). De scanner zag het
+    niet: hij keek alleen naar de webroot, uploads en de map erboven. De map
+    had ook geen .htaccess, dus ook op Apache was hij open (lokaal
+    geverifieerd: HEAD 200).
+  - Nieuw scan-niveau "back-upmappen" (instelling exposure_scan_backup_dirs,
+    standaard aan, ook in alle profielen): archieven in wpvividbackups,
+    wpvivid_uploads, updraft, ai1wm-backups, backups-dup-lite/-pro,
+    backup-guard, envato-backups en elke andere map direct in wp-content met
+    "backup" in de naam (vangt o.a. backwpup-*). Recursief, tijdslimiet 10 sec.
+    Een publiek back-uparchief is HIGH (bevat meestal database en wp-config);
+    WPvivid rollback/ (alleen plugin-/themacode) is MEDIUM. Lijst uitbreiden:
+    filter mcm_exposure_backup_dirs.
+  - Archief-extensies uitgebreid met .wpress (All-in-One WP Migration) en .daf
+    (Duplicator); geldt ook voor uploads en de map boven de webroot.
+  - nginx: een deny-.htaccess telt alleen nog als afscherming op Apache of
+    LiteSpeed. Op nginx (en andere servers) zakt een bevinding daardoor niet
+    meer naar LOW; de reden zegt dan ".htaccess-blokkade telt niet op nginx".
+    De server komt uit SERVER_SOFTWARE. Bij een scan via WP-CLI of systeem-cron
+    is die leeg; daarvoor onthoudt de plugin de laatst geziene waarde (optie
+    mcm_exposure_server_software, bijgewerkt op admin_init). Nooit gezien =
+    oud gedrag, met een melding in het dashboard.
+  - Gevolg op nginx-sites: onze eigen uploads/mcm-security-backups/
+    (htaccess-*.bak, db-prefix-backup-*.sql) leunt op een .htaccess en wordt
+    daar voortaan gemeld. Terecht: die map is daar publiek.
+  - HTTP-controle: per groep bestanden die hetzelfde antwoord moeten krijgen
+    (zelfde beslissende .htaccess, bovenste map en extensie) één HEAD-verzoek,
+    dus alleen kopregels en er wordt niets gedownload. 200 = publiek,
+    401/403/404/410 = niet bereikbaar (LOW), al het andere laat het oordeel op
+    basis van .htaccess staan. Het HTTP-antwoord wint van .htaccess, in beide
+    richtingen. Dat vangt ook gevallen die de .htaccess-lezer mist: de
+    envato-backups-.htaccess weigert via RewriteRule [F] (lokaal 403; op
+    .htaccess alleen zou hij HIGH zijn), en een nginx vóór Apache kan een zip
+    leveren zonder dat .htaccess meedoet.
+    Veiligheidsregels: nooit een PHP-bestand opvragen (ook HEAD voert het
+    script uit; ook "x.php.zip" niet, wel een wp-config-kopie). Eerst een
+    controleverzoek naar wp-includes/css/dashicons.min.css; geeft dat geen 200
+    (loopback dicht, Basic Auth, firewall), dan geen HTTP-controle, anders zou
+    een firewall-403 als "afgeschermd" tellen. Redirects worden niet gevolgd,
+    behalve http↔https naar hetzelfde adres. Alleen op het eigen domein: ligt
+    de URL van een bestand op een andere host (CDN, S3-offload,
+    upload_url_path), dan geen controle, want een 404 daar zou een publiek
+    archief op LOW zetten. Het schema komt uit de siteurl-optie (onder WP-CLI
+    gaf content_url() http). Maximaal 10 verzoeken, 5 sec time-out, 15 sec
+    budget inclusief het controleverzoek; groepen die een .htaccess
+    "afgeschermd" noemt gaan voor. Uitzetten: filter mcm_exposure_http_probe.
+  - Dashboard en mail: "Publiek?" toont nu "ja (HTTP 200)", "nee (HTTP 403)"
+    of "(geschat)". Onder de tabel staat welke webserver gezien is en of de
+    HTTP-controle volledig was. Nieuwe kolomwaarde "back-upmap" bij Waar. De
+    mail geeft bij back-upmappen een opruimadvies.
+  - Upgrade-routine (class-upgrader.php, migratie 1.32.0): vult
+    exposure_scan_uploads, exposure_scan_above_root en
+    exposure_scan_backup_dirs aan met "aan" als de sleutel ontbreekt; een
+    bewuste "uit" blijft staan. De scanner viel bij een ontbrekende sleutel al
+    terug op "aan", maar het dashboard toonde de schakelaar dan uit, en één
+    keer opslaan zette het niveau ongemerkt uit. Ook de profielherkenning
+    klopte daardoor niet. Alleen detectie-instellingen, dus er gaan geen
+    regels aan. Let op: de migratie draait alleen als de release echt 1.32.0
+    heet (of hoger).
+  - Opruiming: guess_public() is weg. De enige uitzondering daarin
+    (mcm-security-backups = niet publiek) werd al overschreven en klopte op
+    nginx niet.
+  - Getest op een lokale kopie van pensioenfonds-sagittarius (Apache), met
+    nginx gesimuleerd via SERVER_SOFTWARE: vóór de wijziging 1 bevinding, erna
+    ook de 20 rollback-zips (MEDIUM, HTTP 200), de envato-zip (LOW, HTTP 403)
+    en wp-config.php.mcm-backup (HIGH, HTTP 200). Ook getest: MainWP-achtige
+    map (deny hoger, allow lager: 200 → HIGH), limiet van 10 verzoeken,
+    mislukt controleverzoek en onbekende webserver.
+* Exposure-scanner herkent wp-config.php.mcm-backup (HIGH)
+  - Die schrijft deze plugin zelf in de webroot (class-wpconfig-manager.php
+    en class-db-prefix-manager.php). Het patroon kende alleen .bak, .save,
+    .old, .orig, .tmp en .txt. Op een lokale Apache-kopie gaf een HEAD 200 met
+    de volle bestandsgrootte: DB-credentials publiek. Staat nog open: het
+    bestand niet meer in de webroot schrijven. Dat zit in de wpconfig- en
+    db-prefix-manager en hoort bij een aparte fix.
 = 1.31.1 (nog niet uitgebracht) =
 * Fix: dubbele define()s in wp-config.php (class-wpconfig-manager.php)
   - Aanleiding: pensioenfonds-sagittarius.nl had WP_DEBUG twee keer in
