@@ -244,6 +244,25 @@ check( 'no block: repair_markers() refuses, file untouched', is_wp_error( MCM_WP
 config( "<?php\n" . $block_debug . "\n\$x = 1;\n// MCM_DISABLED: define( 'WP_DEBUG', true );\n" );
 check( 'healthy file: needs_marker_repair() false', false === MCM_WPConfig_Manager::needs_marker_repair() );
 
+echo "\nlock_admin_email no longer writes SECUPRESS_LOCKED_ADMIN_EMAIL (1.33.0)\n";
+
+$lock      = [ 'no_debug_display' => true, 'lock_admin_email' => true, 'admin_email' => 'marco@example.com' ];
+$secupress = "define( 'SECUPRESS_LOCKED_ADMIN_EMAIL', 'marco@example.com' );";
+config( "<?php\n# BEGIN MCM Security Hardener\ndefine( 'WP_DEBUG_DISPLAY', false );\n$secupress\n# END MCM Security Hardener\n\n\$x = 1;\n" );
+$result = MCM_WPConfig_Manager::write( $lock );
+$after  = config();
+check( 'write() drops the line from an existing block, keeps the rest', true === $result && false === strpos( $after, 'SECUPRESS' ) && 1 === live_defines( $after, 'WP_DEBUG_DISPLAY' ) && parses( $after ), $after );
+MCM_WPConfig_Manager::write( $lock );
+check( 'second write: unchanged', config() === $after );
+
+// The site's own SecuPress define, commented out by an older version, comes
+// back like every line we disabled. The upgrade reports it.
+config( "<?php\n# BEGIN MCM Security Hardener\ndefine( 'WP_DEBUG_DISPLAY', false );\n$secupress\n# END MCM Security Hardener\n\n// MCM_DISABLED: define( 'SECUPRESS_LOCKED_ADMIN_EMAIL', 'old@example.com' );\n" );
+check( 'has_disabled_define() sees the disabled line, only that one', true === MCM_WPConfig_Manager::has_disabled_define( 'SECUPRESS_LOCKED_ADMIN_EMAIL' ) && false === MCM_WPConfig_Manager::has_disabled_define( 'WP_DEBUG_DISPLAY' ) );
+MCM_WPConfig_Manager::write( $lock );
+$after = config();
+check( 'after write(): the own define is active again, once', 1 === live_defines( $after, 'SECUPRESS_LOCKED_ADMIN_EMAIL' ) && false !== strpos( $after, "'old@example.com'" ) && false === MCM_WPConfig_Manager::has_disabled_define( 'SECUPRESS_LOCKED_ADMIN_EMAIL' ) && parses( $after ), $after );
+
 // Up to 1.31.0 every write left a plain-text copy next to wp-config.php.
 check( 'never a wp-config.php.mcm-backup in the webroot', ! file_exists( ABSPATH . 'wp-config.php.mcm-backup' ) );
 

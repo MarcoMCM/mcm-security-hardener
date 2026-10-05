@@ -245,6 +245,20 @@ class MCM_WPConfig_Manager {
 	}
 
 	/**
+	 * Staat er een door ons uitgeschakelde define() van deze constante in
+	 * wp-config.php? Die komt bij de volgende write() terug als we de
+	 * constante niet meer beheren.
+	 */
+	public static function has_disabled_define( $name ) {
+		$config_path = self::get_config_path();
+		if ( ! $config_path || ! is_readable( $config_path ) ) {
+			return false;
+		}
+		$pattern = '/^\/\/ MCM_DISABLED: [ \t]*define\s*\(\s*[\'"]' . preg_quote( $name, '/' ) . '[\'"]/m';
+		return (bool) preg_match( $pattern, (string) file_get_contents( $config_path ) );
+	}
+
+	/**
 	 * Build the define() lines from settings.
 	 */
 	private static function build_lines( array $s ) {
@@ -285,10 +299,9 @@ class MCM_WPConfig_Manager {
 		if ( ! empty( $s['no_debug_display'] ) || 'log' === $debug_mode ) {
 			$lines[] = "define( 'WP_DEBUG_DISPLAY', false );";
 		}
-		if ( ! empty( $s['lock_admin_email'] ) && ! empty( $s['admin_email'] ) ) {
-			$email   = sanitize_email( $s['admin_email'] );
-			$lines[] = "define( 'SECUPRESS_LOCKED_ADMIN_EMAIL', '{$email}' );";
-		}
+		// lock_admin_email schrijft sinds 1.33.0 niets meer: de oude
+		// SECUPRESS_LOCKED_ADMIN_EMAIL las alleen SecuPress. Het slot zit nu
+		// in MCM_Admin_Email_Lock; de regel verdwijnt bij de volgende write().
 		if ( ! empty( $s['auto_update_minor'] ) ) {
 			$lines[] = "define( 'WP_AUTO_UPDATE_CORE', 'minor' );";
 		}
@@ -367,7 +380,6 @@ class MCM_WPConfig_Manager {
 		if ( 'off' === $debug_mode )                  $constants[] = 'WP_DEBUG';
 		if ( 'log' === $debug_mode )                  $constants = array_merge( $constants, [ 'WP_DEBUG', 'WP_DEBUG_LOG' ] );
 		if ( ! empty( $s['no_debug_display'] ) || 'log' === $debug_mode ) $constants[] = 'WP_DEBUG_DISPLAY';
-		if ( ! empty( $s['lock_admin_email'] ) )      $constants[] = 'SECUPRESS_LOCKED_ADMIN_EMAIL';
 		if ( ! empty( $s['auto_update_minor'] ) )     $constants[] = 'WP_AUTO_UPDATE_CORE';
 		if ( ! empty( $s['random_cookie_hash'] ) )    $constants[] = 'COOKIEHASH';
 		if ( ! empty( $s['secure_keys'] ) ) {

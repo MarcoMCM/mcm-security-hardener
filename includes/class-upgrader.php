@@ -28,6 +28,9 @@
  *  - 1.32.0 ruimt onze eigen achtergebleven kopie wp-config.php.mcm-backup
  *    op: die wordt verplaatst naar de afgeschermde back-upmap
  *    (MCM_Backup_Store::migrate_legacy()).
+ *  - 1.33.0 trekt het MCM-veld "Admin e-mail" (en bij SecuPress de
+ *    database) gelijk met het admin-adres dat de site nu gebruikt
+ *    (MCM_Admin_Email_Lock::upgrade()). Dat adres zelf verandert niet.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -57,7 +60,9 @@ class MCM_Upgrader {
 	 * (alleen ontbrekende sleutels!), 'htaccess' = .htaccess herschrijven,
 	 * 'wpconfig_repair' = wp-config.php herstellen als de fout uit
 	 * comment_out_constants() (t/m 1.31.0) er sporen heeft achtergelaten,
-	 * 'legacy_backups' = oude back-ups omzetten (MCM_Backup_Store).
+	 * 'legacy_backups' = oude back-ups omzetten (MCM_Backup_Store),
+	 * 'admin_email_lock' = MCM-veld "Admin e-mail" gelijktrekken
+	 * (MCM_Admin_Email_Lock).
 	 */
 	private static function migrations() {
 		return [
@@ -92,6 +97,12 @@ class MCM_Upgrader {
 				// tekst: DB-credentials + salts). Verplaatsen naar de back-upmap,
 				// samen met de oude .bak/.sql-back-ups daar (op nginx publiek).
 				'legacy_backups' => true,
+			],
+			// "Vergrendel admin e-mail" werkt nu echt. Het slot bewaakt het
+			// MCM-veld, dus dat moet eerst het adres zijn dat de site
+			// gebruikt, anders zou een latere opslag het adres omzetten.
+			'1.33.0' => [
+				'admin_email_lock' => true,
 			],
 		];
 	}
@@ -146,6 +157,7 @@ class MCM_Upgrader {
 		$htaccess = false;
 		$wpconfig = false;
 		$legacy   = false;
+		$email    = false;
 
 		foreach ( self::migrations() as $version => $steps ) {
 			if ( version_compare( $from, $version, '>=' ) || version_compare( $version, MCM_SECURITY_VERSION, '>' ) ) {
@@ -163,6 +175,9 @@ class MCM_Upgrader {
 			if ( ! empty( $steps['legacy_backups'] ) ) {
 				$legacy = true;
 			}
+			if ( ! empty( $steps['admin_email_lock'] ) ) {
+				$email = true;
+			}
 		}
 
 		if ( $settings !== $original ) {
@@ -178,6 +193,7 @@ class MCM_Upgrader {
 		];
 		$messages = [];
 		$mail     = []; // Alinea's voor de mail; leeg = geen mail.
+		$subjects = []; // Onderwerp van die mail als niets mislukt is.
 
 		if ( $htaccess ) {
 			if ( ! MCM_Htaccess_Manager::is_active() ) {
@@ -219,10 +235,12 @@ class MCM_Upgrader {
 				// Kan alleen als iemand het blok met de hand heeft weggehaald.
 				$messages[] = 'wp-config.php: lege MCM_DISABLED-regels gevonden, maar het MCM-blok staat er niet. Niet aangeraakt.';
 				$mail[]     = "In wp-config.php staan lege \"// MCM_DISABLED: \"-regels, maar het MCM-blok staat er niet. Er is niets gewijzigd; kijk het bestand na.";
+				$subjects[] = 'wp-config.php nakijken';
 			} else {
 				$repaired = MCM_WPConfig_Manager::repair_markers();
 				if ( true === $repaired ) {
 					$messages[] = 'wp-config.php hersteld: dubbele define()s uitgeschakeld.';
+					$subjects[] = 'wp-config.php hersteld';
 					$mail[]     = "wp-config.php is hersteld. Door een fout in eerdere versies stond een constante twee keer in het bestand (PHP-waarschuwing \"already defined\" bij elke request). De dubbele define() is nu uitgeschakeld; het MCM-blok is ongewijzigd. Vorige versie: de nieuwste wp-config-*.php in uploads/" . MCM_Backup_Store::DIR . "/ (herstellen = eerste regel weghalen).";
 				} else {
 					$reason           = is_wp_error( $repaired ) ? $repaired->get_error_message() : 'wp-config.php kon niet worden geschreven.';
@@ -230,6 +248,17 @@ class MCM_Upgrader {
 					$messages[]       = 'wp-config.php niet hersteld: ' . $reason;
 					$mail[]           = "wp-config.php kon niet worden hersteld (dubbele define()s uit eerdere versies). Er is niets gewijzigd.\nReden: " . $reason;
 				}
+			}
+		}
+
+		// Alleen bij een afwijking een mail; op een site waar alles al klopt
+		// gebeurt er niets.
+		if ( $email ) {
+			$lock     = MCM_Admin_Email_Lock::upgrade();
+			$messages = array_merge( $messages, $lock['messages'] );
+			if ( $lock['mail'] ) {
+				$mail       = array_merge( $mail, $lock['mail'] );
+				$subjects[] = 'admin-e-mailadres nagelopen';
 			}
 		}
 
@@ -245,7 +274,7 @@ class MCM_Upgrader {
 
 		if ( $mail ) {
 			MCM_Notifier::email(
-				sprintf( 'failed' === $result['status'] ? 'Upgrade naar %s: niet alles bijgewerkt' : 'Upgrade naar %s: wp-config.php hersteld', MCM_SECURITY_VERSION ),
+				sprintf( 'Upgrade naar %s: %s', MCM_SECURITY_VERSION, 'failed' === $result['status'] ? 'niet alles bijgewerkt' : implode( ', ', $subjects ) ),
 				"Automatische upgrade van MCM Security Hardener ({$from} → " . MCM_SECURITY_VERSION . ").\n\n" .
 				implode( "\n\n", $mail ) .
 				( 'failed' === $result['status'] ? "\n\nOpen Extra → MCM Security en klik \"Opslaan & Toepassen\" om de regels handmatig bij te werken." : '' )

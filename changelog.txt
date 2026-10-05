@@ -1,5 +1,83 @@
 MCM Security Hardener — Changelog
 
+= 1.33.0 (2026-10-05) =
+* Fix: "Vergrendel admin e-mail" deed niets zonder SecuPress
+  (class-admin-email-lock.php, class-wpconfig-manager.php,
+  class-admin-page.php, class-profiles.php)
+  - Aanleiding: de instelling (standaard aan, ook in alle profielen)
+    schreef alleen define( 'SECUPRESS_LOCKED_ADMIN_EMAIL', … ) in het
+    MCM-blok van wp-config.php. Die constante leest alleen SecuPress, bij
+    het lezen van de optie (pre_option_admin_email). Niets in deze plugin
+    las hem, dus het admin-e-mailadres was gewoon te wijzigen, terwijl het
+    dashboard "Voorkomt wijzigen van het admin e-mailadres" beloofde.
+    Lokaal geverifieerd op een kopie van mtb-architecten: `wp option
+    update admin_email` slaagde met het slot aan.
+  - Nieuw: MCM_Admin_Email_Lock. Filters op pre_update_option_admin_email
+    en pre_update_option_new_admin_email: wijzigen kan alleen nog náár het
+    adres in het MCM-veld "Admin e-mail". Elke andere waarde wordt de
+    oude, via welke route ook: Instellingen → Algemeen, een oude
+    bevestigingslink, WP-CLI (met waarschuwing), de REST API of code van
+    een plugin. De gebruiker krijgt een melding; WordPress zelf zegt
+    anders "Instellingen opgeslagen".
+  - Wijzigen gaat via het MCM-veld, met WordPress' eigen bevestigingsmail
+    naar het nieuwe adres (keuze Marco, 5 okt 2026). Pas na de klik
+    gebruikt WordPress het nieuwe adres, dus een tikfout verandert niets.
+    Nog een keer opslaan stuurt geen tweede mail; het huidige adres
+    terugzetten trekt de wachtende wijziging in. Zolang de bevestiging
+    uitstaat, zegt het veld "Wacht op bevestiging".
+  - Het MCM-veld volgt WordPress (keuze Marco): het toont het adres dat
+    WordPress gebruikt, en opslaan, een profiel of "Activeer alles" neemt
+    dat over als er geen bevestiging uitstaat. Zet een profiel het slot
+    aan, dan vergrendelt het dus het huidige adres, niet een oude
+    MCM-waarde. Geldt voor elke knop die het formulier opslaat, ook
+    "Verstuur nu" (login-URL) en de toegangsmail.
+  - Instellingen → Algemeen: melding bovenaan en het veld alleen-lezen
+    (klein inline script; de beveiliging zit in de filters).
+  - Bewust geen filter bij het lezen zoals SecuPress: dat dwingt het adres
+    af en zet een site die een ander adres gebruikt ongemerkt om. Het
+    netwerkadres van een multisite valt erbuiten.
+  - wp-config.php: de SECUPRESS-regel wordt niet meer geschreven. Hij
+    verdwijnt bij de volgende "Opslaan & Toepassen", profielkeuze of
+    "Activeer alles"; de upgrade raakt wp-config.php niet aan (keuze
+    Marco). Zonder SecuPress doet de regel tot dan niets.
+* Upgrade-routine: admin-e-mailadres nagelopen (class-upgrader.php,
+  migratie 1.33.0)
+  - Alleen met het slot aan. Het adres dat de site gebruikt verandert
+    nooit; het MCM-veld en zo nodig de database worden daarop
+    gelijkgetrokken.
+  - Wijkt het MCM-veld af (iemand wijzigde het adres in Instellingen →
+    Algemeen), dan krijgt het veld het adres dat WordPress gebruikt, met
+    een mail. Een leeg veld wordt zonder mail aangevuld.
+  - SecuPress met de module "Lock Admin Email" actief en een ander adres
+    in de database: het adres van SecuPress gaat de database in, zodat er
+    niets verandert als de constante verdwijnt. Met mail.
+  - Een uitgeschakelde eigen SecuPress-regel ("// MCM_DISABLED: define(
+    'SECUPRESS_LOCKED_ADMIN_EMAIL', … )") komt bij de volgende
+    schrijfactie terug, zoals elke regel die MCM had uitgeschakeld. Alleen
+    gemeld, met mail (nieuw: MCM_WPConfig_Manager::has_disabled_define()).
+  - Klopt alles al, dan gebeurt er niets en komt er geen mail. Zo stond
+    het op de vier lokale kopieën die zijn nagekeken (parre-en-deden,
+    hilversum-repareert, sagittarius, mtb-architecten): DB, MCM-veld en
+    constante gelijk, SecuPress nergens actief. Live niet nagekeken.
+  - Het onderwerp van de upgrade-mail zegt nu wat er gebeurde. Het was
+    "wp-config.php hersteld" bij elke mail zonder mislukte stap.
+* Tests: tests/wpconfig-manager-test.php controleert dat write() de
+  SECUPRESS-regel uit een bestaand blok haalt (en daarna niets meer
+  wijzigt), en dat een uitgeschakelde eigen regel gezien wordt en
+  terugkomt.
+* Getest op een losse WordPress 7.1.2 (scratch-site, php -S, PHP 8.2),
+  1.32.0 → 1.33.0 via wp-cron: alles gelijk (niets gewijzigd, geen mail);
+  adres in WordPress gewijzigd (veld volgt, mail); nagebootste
+  SecuPress-lock (database bijgewerkt, adres gelijk na verdwijnen van de
+  constante); uitgeschakelde SecuPress-regel (gemeld). WP-CLI, REST en
+  new_admin_email geblokkeerd; slot uit = vrij te wijzigen; profiel met
+  verouderd MCM-veld volgt WordPress zonder mail. In de browser: MCM-veld
+  → bevestigingsmail → klik → nieuw adres en een "Admin Email
+  Changed"-mail naar het oude; tweede opslag geen tweede mail; terugzetten
+  vóór de klik trekt de wijziging in; alleen-lezen veld omzeild →
+  geblokkeerd met melding; oude bevestigingslink → geblokkeerd. "Opslaan &
+  Toepassen" haalde de SECUPRESS-regel weg. Geen PHP-waarschuwingen.
+
 = 1.32.0 (2026-10-05) =
 * Fix: wp-config-back-up stond publiek in de webroot (class-backup-store.php,
   class-wpconfig-manager.php, class-db-prefix-manager.php,

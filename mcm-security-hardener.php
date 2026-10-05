@@ -3,7 +3,7 @@
  * Plugin Name: MCM Security Hardener
  * Plugin URI:  https://github.com/MarcoMCM/mcm-security-hardener
  * Description: Schrijft security-hardening regels naar wp-config.php en .htaccess, gebaseerd op SecuPress Pro-niveau instellingen.
- * Version: 1.32.0
+ * Version: 1.33.0
  * Author: MCM Websites
  * Author URI: https://mcmwebsites.nl
  * Update URI: https://github.com/MarcoMCM/mcm-security-hardener
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MCM_SECURITY_VERSION', '1.32.0' );
+define( 'MCM_SECURITY_VERSION', '1.33.0' );
 define( 'MCM_SECURITY_FILE', __FILE__ );
 define( 'MCM_SECURITY_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -52,6 +52,7 @@ require_once MCM_SECURITY_DIR . 'includes/class-user-enumeration.php';
 require_once MCM_SECURITY_DIR . 'includes/class-update-compat-check.php';
 require_once MCM_SECURITY_DIR . 'includes/class-registration-protection.php';
 require_once MCM_SECURITY_DIR . 'includes/class-backend-access.php';
+require_once MCM_SECURITY_DIR . 'includes/class-admin-email-lock.php';
 require_once MCM_SECURITY_DIR . 'includes/class-file-exposure-scanner.php';
 require_once MCM_SECURITY_DIR . 'includes/class-anomaly-scanner.php';
 require_once MCM_SECURITY_DIR . 'includes/class-snippet-monitor.php';
@@ -89,6 +90,7 @@ final class MCM_Security_Hardener {
 		new MCM_Human_Verification();
 		new MCM_Registration_Protection();
 		new MCM_Backend_Access();
+		new MCM_Admin_Email_Lock();
 		new MCM_File_Exposure_Scanner();
 		new MCM_Anomaly_Scanner();
 		new MCM_Snippet_Monitor();

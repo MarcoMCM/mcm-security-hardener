@@ -98,16 +98,18 @@ class MCM_Admin_Page {
 
 	private function save_settings() {
 		$old_slug = $this->get_current_slug();
-		$settings = $this->sanitize_input( $_POST );
+		$settings = MCM_Admin_Email_Lock::reconcile( $this->sanitize_input( $_POST ), isset( $_POST['admin_email'] ) );
 		update_option( self::OPTION_KEY, $settings );
+		MCM_Admin_Email_Lock::after_save();
 		$this->maybe_send_slug_change_mail( $old_slug, $settings );
 		$this->redirect( 'saved' );
 	}
 
 	private function apply_rules() {
 		$old_slug = $this->get_current_slug();
-		$settings = $this->sanitize_input( $_POST );
+		$settings = MCM_Admin_Email_Lock::reconcile( $this->sanitize_input( $_POST ), isset( $_POST['admin_email'] ) );
 		update_option( self::OPTION_KEY, $settings );
+		MCM_Admin_Email_Lock::after_save();
 
 		$config_result   = MCM_WPConfig_Manager::write( $settings );
 		$htaccess_result = MCM_Htaccess_Manager::write( $settings );
@@ -158,8 +160,9 @@ class MCM_Admin_Page {
 	 */
 	private function send_login_url_now_action() {
 		// Sla eerst de form-staat op zodat aangevinkte recipients meetellen.
-		$settings = $this->sanitize_input( $_POST );
+		$settings = MCM_Admin_Email_Lock::reconcile( $this->sanitize_input( $_POST ), isset( $_POST['admin_email'] ) );
 		update_option( self::OPTION_KEY, $settings );
+		MCM_Admin_Email_Lock::after_save();
 
 		$sent = $this->send_login_url_now();
 		if ( 0 === $sent ) {
@@ -210,8 +213,9 @@ class MCM_Admin_Page {
 	 */
 	private function send_access_mail_action() {
 		// Sla eerst de form-staat op zodat zojuist aangevinkte recipients meetellen.
-		$settings = $this->sanitize_input( $_POST );
+		$settings = MCM_Admin_Email_Lock::reconcile( $this->sanitize_input( $_POST ), isset( $_POST['admin_email'] ) );
 		update_option( self::OPTION_KEY, $settings );
+		MCM_Admin_Email_Lock::after_save();
 
 		$recipient_ids = ! empty( $settings['mail_admins_recipients'] ) ? (array) $settings['mail_admins_recipients'] : [];
 		if ( empty( $recipient_ids ) ) {
@@ -490,7 +494,9 @@ class MCM_Admin_Page {
 			$settings['mail_admins_recipients'] = $this->sanitize_recipient_ids( (array) $existing['mail_admins_recipients'] );
 		}
 
+		$settings = MCM_Admin_Email_Lock::reconcile( $settings, isset( $_POST['admin_email'] ) );
 		update_option( self::OPTION_KEY, $settings );
+		MCM_Admin_Email_Lock::after_save();
 
 		MCM_WPConfig_Manager::write( $settings );
 		MCM_Htaccess_Manager::write( $settings );
@@ -1223,16 +1229,31 @@ class MCM_Admin_Page {
 						$this->render_toggle( 'random_cookie_hash', 'Random cookie hash', 'COOKIEHASH &mdash; wijzigt de standaard cookie-naam naar een willekeurige waarde.', $settings );
 						$this->render_toggle( 'secure_keys', 'Beveiligde sleutels genereren', 'Genereert sterke AUTH_KEY, SECURE_AUTH_KEY, LOGGED_IN_KEY, NONCE_KEY en bijbehorende salts.', $settings );
 						$this->render_toggle( 'skip_bundled', 'Skip gebundelde themes', 'CORE_UPGRADE_SKIP_NEW_BUNDLED &mdash; voegt geen nieuwe default themes toe bij core updates.', $settings );
-						$this->render_toggle( 'lock_admin_email', 'Vergrendel admin e-mail', 'Voorkomt wijzigen van het admin e-mailadres.', $settings );
+						$this->render_toggle( 'lock_admin_email', 'Vergrendel admin e-mail', 'Het admin-e-mailadres van WordPress (Instellingen &rarr; Algemeen) is alleen hieronder te wijzigen, met een bevestigingsmail naar het nieuwe adres. Instellingen &rarr; Algemeen, WP-CLI, de REST API en plugins kunnen het niet meer veranderen.', $settings );
 						$this->render_debug_mode_row( $settings );
+						$email_state = MCM_Admin_Email_Lock::field_state( $settings );
 						?>
 						<tr>
 							<th scope="row"><label for="admin_email">Admin e-mail</label></th>
 							<td>
 								<input type="email" id="admin_email" name="admin_email"
-									value="<?php echo esc_attr( $settings['admin_email'] ?? '' ); ?>"
+									value="<?php echo esc_attr( $email_state['value'] ); ?>"
 									class="regular-text" />
-								<p class="description">E-mailadres dat vergrendeld wordt.</p>
+								<p class="description">
+									<?php
+									if ( 'pending' === $email_state['state'] ) {
+										printf(
+											'Wacht op bevestiging: WordPress heeft een mail gestuurd naar %1$s. Tot er op de link geklikt is (ingelogd als beheerder), blijft <strong>%2$s</strong> het admin-e-mailadres. Mail kwijt? Annuleer de wijziging in Instellingen &rarr; Algemeen en sla hier opnieuw op.',
+											esc_html( $email_state['value'] ),
+											esc_html( $email_state['current'] )
+										);
+									} elseif ( 'off' === $email_state['state'] ) {
+										echo 'Het admin-e-mailadres van WordPress. Het slot staat uit: wijzigen kan ook via Instellingen &rarr; Algemeen.';
+									} else {
+										echo 'Het admin-e-mailadres van WordPress, en het adres dat vergrendeld is. Vul je een ander adres in, dan stuurt WordPress eerst een bevestigingsmail naar dat adres; pas na de klik wordt het het admin-e-mailadres.';
+									}
+									?>
+								</p>
 							</td>
 						</tr>
 					</table>

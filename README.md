@@ -22,6 +22,7 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | **Gebruikersnamen afschermen** | Zet de vier routes dicht waarlangs WordPress logins weggeeft (`?author=1`, REST `/wp/v2/users`, oEmbed, users-sitemap) + een generieke loginfout, zodat een mislukte login niet verklapt of de gebruikersnaam bestaat. Auteursarchieven blijven werken |
 | **Archieven in uploads blokkeren** | Optionele `.htaccess`-regel: 403 op directe download van zip/rar/7z/tar.gz/sql/bak uit `/uploads/`, met uitzondering van `woocommerce_uploads` en AVG-exports |
 | **Inhoud blijft bij gebruiker verwijderen** | Verwijder je een gebruiker met "alle inhoud verwijderen" (of via WP-CLI/code zonder `--reassign`), dan verwijdert WordPress normaal al zijn pagina's, berichten en media. Deze module houdt dat tegen: het account gaat weg, de inhoud gaat naar de beheerder die het deed (anders een MCM-eigenaar of de eerste admin). Eén mail per verzoek, ook bij een batch. Heeft een account alleen revisies, automatische concepten of prullenbak, dan mag WordPress die gewoon verwijderen. Aanleiding: powair.nl, juni 2026 (171 items weg met één account) |
+| **Admin-e-mailadres vergrendelen** | Het adres uit Instellingen → Algemeen is alleen via MCM te wijzigen, met WordPress' eigen bevestigingsmail naar het nieuwe adres. Instellingen → Algemeen, WP-CLI, de REST API en plugins kunnen het niet veranderen (sinds 1.33.0; daarvoor werkte het alleen met SecuPress) |
 | **Database prefix-migratie** | Detecteert default `wp_` + biedt veilige random-prefix-migratie incl. SQL-backup en rollback |
 
 ### 🔎 Detecteren & rapporteren
@@ -155,6 +156,7 @@ mcm-security-hardener/
 │   ├── class-user-delete-guard.php    Inhoud nooit meeverwijderen met een gebruiker
 │   ├── class-update-compat-check.php  WP-update plugin-compat tabel
 │   ├── class-backend-access.php       Skip email-confirm + non-admin backend-block
+│   ├── class-admin-email-lock.php     Admin-e-mailadres alleen via MCM (met bevestigingsmail)
 │   ├── class-file-exposure-scanner.php  Scan op blootgestelde bestanden (webroot + uploads + back-upmappen + boven webroot)
 │   ├── class-user-enumeration.php       Gebruikersnamen afschermen (author/REST/oEmbed/sitemap/loginfout)
 │   ├── class-anomaly-scanner.php      Scan op vreemde bestanden/mappen (whitelist + plugin-/snippet-baseline-diff)

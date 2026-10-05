@@ -184,7 +184,12 @@ class MCM_Profiles {
 			}
 		}
 
+		// Een profiel kan "Vergrendel admin e-mail" aanzetten: dan vergrendelt
+		// het het adres dat WordPress nu gebruikt, niet een oude MCM-waarde.
+		$current = MCM_Admin_Email_Lock::reconcile( $current, false );
+
 		update_option( 'mcm_security_settings', $current );
+		MCM_Admin_Email_Lock::after_save();
 
 		// Toepassen op wp-config + htaccess.
 		MCM_WPConfig_Manager::write( $current );
