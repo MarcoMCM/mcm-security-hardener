@@ -109,6 +109,14 @@ MCM Security Hardener — Changelog
     gaf content_url() http). Maximaal 10 verzoeken, 5 sec time-out, 15 sec
     budget inclusief het controleverzoek; groepen die een .htaccess
     "afgeschermd" noemt gaan voor. Uitzetten: filter mcm_exposure_http_probe.
+    Varnish: het verzoek krijgt een cache-buster (?mcm-probe=<random>). Op
+    stadsfondshilversum.nl liet een HEAD op de publieke URL Varnish het hele
+    bestand ophalen en 30 dagen bewaren, waardoor de wp-config-kopie na
+    verwijderen via de cache publiek bleef. Zegt de server "niet bereikbaar",
+    dan volgt één HEAD op de publieke URL: geeft die 200, dan staat er nog
+    een oude kopie in de cache en blijft de bevinding staan met "purge die
+    URL". Die tweede controle kan de cache niet vullen, want de server levert
+    het bestand dan niet.
   - Dashboard en mail: "Publiek?" toont nu "ja (HTTP 200)", "nee (HTTP 403)"
     of "(geschat)". Onder de tabel staat welke webserver gezien is en of de
     HTTP-controle volledig was. Nieuwe kolomwaarde "back-upmap" bij Waar. De

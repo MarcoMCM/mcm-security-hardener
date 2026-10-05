@@ -62,6 +62,10 @@
  *      op PHP-bestanden (een HEAD-verzoek voert het script uit), en alleen
  *      als een controleverzoek naar een vast core-bestand 200 geeft — anders
  *      zou een 403 van een firewall als "afgeschermd" gelezen worden.
+ *      Het verzoek krijgt een cache-buster (?mcm-probe=…), zodat Varnish een
+ *      lek niet onder de publieke URL gaat bewaren. Zegt de server "nee", dan
+ *      volgt één HEAD op de publieke URL om een oude kopie in de cache te
+ *      vangen.
  *   Het vinden van bestanden blijft via het bestandssysteem (zie boven over
  *   Varnish); HTTP zegt alleen of een bestand dat op disk staat ook
  *   opvraagbaar is.
@@ -1249,7 +1253,12 @@ class MCM_File_Exposure_Scanner {
 				continue;
 			}
 
-			$code = self::http_status( $url );
+			// Cache-buster: een HEAD op de publieke URL laat Varnish (Xel) het
+			// hele bestand ophalen en 30 dagen onder die URL bewaren. Gezien op
+			// stadsfondshilversum.nl: na verwijderen bleef de wp-config-kopie
+			// via de cache publiek. Met een unieke query komt de kopie onder een
+			// sleutel die niemand kent, en zien we wat de server zelf zegt.
+			$code = self::http_status( add_query_arg( 'mcm-probe', wp_generate_password( 12, false ), $url ) );
 			$meta['done']++;
 
 			$public = self::code_means_public( $code );
@@ -1258,8 +1267,22 @@ class MCM_File_Exposure_Scanner {
 				continue;
 			}
 
+			// De server weigert, maar heeft de cache nog een oude kopie onder de
+			// publieke URL (bestand net afgeschermd, nog niet gepurged)? Dan is
+			// het voor bezoekers nog steeds publiek. Deze tweede controle kan de
+			// cache niet vullen: de server levert het bestand niet meer.
+			$cached = false;
+			if ( ! $public && microtime( true ) + 2 * self::PROBE_TIMEOUT <= $deadline && 200 === self::http_status( $url ) ) {
+				$public = true;
+				$code   = 200;
+				$cached = true;
+			}
+
 			foreach ( $indexes as $i ) {
 				$findings[ $i ] = self::set_reachable( $findings[ $i ], $public, $code );
+				if ( $cached ) {
+					$findings[ $i ]['reason'] .= ' — alleen nog via de cache: purge die URL (Varnish)';
+				}
 			}
 		}
 
