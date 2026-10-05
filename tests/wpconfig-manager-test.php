@@ -1,6 +1,7 @@
 <?php
 /**
- * Regression tests for MCM_WPConfig_Manager (comment-out, write, repair).
+ * Regression tests for MCM_WPConfig_Manager (comment-out, write, repair),
+ * with the real MCM_Backup_Store for the back-ups.
  *
  * Run from the plugin folder:  php tests/wpconfig-manager-test.php
  *
@@ -18,7 +19,7 @@ $tmp = sys_get_temp_dir() . '/mcm-wpconfig-test-' . getmypid() . '/';
 @mkdir( $tmp );
 define( 'ABSPATH', $tmp );
 
-// Just enough WordPress for the class.
+// Just enough WordPress for the classes.
 class WP_Error {
 	private $code, $message;
 	public function __construct( $code = '', $message = '' ) {
@@ -38,7 +39,20 @@ function is_wp_error( $thing ) {
 function wp_tempnam( $prefix = '' ) {
 	return tempnam( sys_get_temp_dir(), $prefix );
 }
+function wp_upload_dir( $time = null, $create_dir = true ) {
+	return [ 'basedir' => ABSPATH . 'uploads', 'error' => false ];
+}
+function trailingslashit( $path ) {
+	return rtrim( $path, '/\\' ) . '/';
+}
+function untrailingslashit( $path ) {
+	return rtrim( $path, '/\\' );
+}
+function wp_mkdir_p( $dir ) {
+	return is_dir( $dir ) || @mkdir( $dir, 0777, true );
+}
 
+require dirname( __DIR__ ) . '/includes/class-backup-store.php';
 require dirname( __DIR__ ) . '/includes/class-wpconfig-manager.php';
 
 $fallback = in_array( '--fallback', $argv, true );
@@ -99,9 +113,27 @@ function config( $content = null ) {
 	$path = ABSPATH . 'wp-config.php';
 	if ( null !== $content ) {
 		file_put_contents( $path, $content );
-		@unlink( $path . '.mcm-backup' );
+		array_map( 'unlink', backups() );
 	}
 	return file_get_contents( $path );
+}
+
+// wp-config back-ups in MCM_Backup_Store, oldest first.
+function backups() {
+	$list = glob( ABSPATH . 'uploads/' . MCM_Backup_Store::DIR . '/wp-config-*.php' ) ?: [];
+	sort( $list );
+	return $list;
+}
+
+// Newest back-up without the guard line, or null if there is none or the
+// guard is missing.
+function latest_backup() {
+	$list = backups();
+	if ( ! $list ) {
+		return null;
+	}
+	$data = file_get_contents( end( $list ) );
+	return 0 === strpos( $data, MCM_Backup_Store::GUARD ) ? substr( $data, strlen( MCM_Backup_Store::GUARD ) ) : null;
 }
 
 function empty_markers( $code ) {
@@ -161,10 +193,9 @@ check( 'returns true', true === $first );
 check( 'exactly one active WP_DEBUG and WP_DEBUG_DISPLAY', 1 === live_defines( $after, 'WP_DEBUG' ) && 1 === live_defines( $after, 'WP_DEBUG_DISPLAY' ), $after );
 check( 'block value wins (block comes first)', false !== strpos( $after, "<?php\n# BEGIN MCM Security Hardener\ndefine( 'WP_DEBUG', false );" ) );
 check( 'no empty markers, result parses', 0 === empty_markers( $after ) && parses( $after ) );
-check( 'backup holds the original', config() !== $original && file_get_contents( ABSPATH . 'wp-config.php.mcm-backup' ) === $original );
-@unlink( ABSPATH . 'wp-config.php.mcm-backup' );
+check( 'one guarded back-up, holding the original', 1 === count( backups() ) && latest_backup() === $original );
 MCM_WPConfig_Manager::write( $settings );
-check( 'second write: unchanged, no new backup', config() === $after && ! file_exists( ABSPATH . 'wp-config.php.mcm-backup' ) );
+check( 'second write: unchanged, no new back-up', config() === $after && 1 === count( backups() ) );
 MCM_WPConfig_Manager::remove();
 check( 'remove() restores the original exactly', config() === $original );
 
@@ -179,7 +210,7 @@ check( 'multi-line define(): written, parses, define stays active', true === $re
 $broken = "<?php\n" . $block_debug . "\n\$x = ;\n// MCM_DISABLED: define( 'WP_DEBUG', true );\n?" . ">\nGARBAGE\n";
 config( $broken );
 $result = MCM_WPConfig_Manager::write( [ 'debug_mode' => 'log' ] );
-check( 'rejected write: WP_Error, file untouched, no backup', is_wp_error( $result ) && config() === $broken && ! file_exists( ABSPATH . 'wp-config.php.mcm-backup' ), is_wp_error( $result ) ? $result->get_error_message() : var_export( $result, true ) );
+check( 'rejected write: WP_Error, file untouched, no back-up', is_wp_error( $result ) && config() === $broken && 0 === count( backups() ), is_wp_error( $result ) ? $result->get_error_message() : var_export( $result, true ) );
 
 echo "\nrepair_markers() on files damaged by 1.31.0\n";
 
@@ -191,7 +222,7 @@ $result = MCM_WPConfig_Manager::repair_markers();
 $after  = config();
 check( 'repaired: one active define each, no empty markers', true === $result && 1 === live_defines( $after, 'WP_DEBUG' ) && 1 === live_defines( $after, 'WP_DEBUG_DISPLAY' ) && 0 === empty_markers( $after ) && parses( $after ), $after );
 check( 'block unchanged, blank lines back', 0 === strpos( $after, "<?php\n" . $block_debug ) && false !== strpos( $after, "\$table_prefix = 'wp_';\n\n// MCM_DISABLED: define( 'WP_DEBUG', true );\n\n// MCM_DISABLED: define( 'WP_DEBUG_DISPLAY', true );" ), $after );
-check( 'backup holds the damaged file', file_get_contents( ABSPATH . 'wp-config.php.mcm-backup' ) === $damaged );
+check( 'back-up holds the damaged file', latest_backup() === $damaged );
 check( 'needs_marker_repair() false afterwards', false === MCM_WPConfig_Manager::needs_marker_repair() );
 MCM_WPConfig_Manager::remove();
 check( 'remove() afterwards gives the pre-plugin file', config() === $original );
@@ -208,13 +239,20 @@ MCM_WPConfig_Manager::remove();
 check( 'CRLF: remove() puts the key back verbatim', false !== strpos( config(), "\r\ndefine( 'AUTH_KEY', '$salt' );\r\n" ) && 1 === live_defines( config(), 'AUTH_KEY' ) );
 
 config( "<?php\n\$x = 1;\n// MCM_DISABLED: \ndefine( 'WP_DEBUG', true );\n" );
-check( 'no block: repair_markers() refuses, file untouched', is_wp_error( MCM_WPConfig_Manager::repair_markers() ) && ! file_exists( ABSPATH . 'wp-config.php.mcm-backup' ) );
+check( 'no block: repair_markers() refuses, file untouched', is_wp_error( MCM_WPConfig_Manager::repair_markers() ) && 0 === count( backups() ) );
 
 config( "<?php\n" . $block_debug . "\n\$x = 1;\n// MCM_DISABLED: define( 'WP_DEBUG', true );\n" );
 check( 'healthy file: needs_marker_repair() false', false === MCM_WPConfig_Manager::needs_marker_repair() );
 
+// Up to 1.31.0 every write left a plain-text copy next to wp-config.php.
+check( 'never a wp-config.php.mcm-backup in the webroot', ! file_exists( ABSPATH . 'wp-config.php.mcm-backup' ) );
+
+array_map( 'unlink', backups() );
+foreach ( [ '/.htaccess', '/index.php', '' ] as $f ) {
+	$f ? @unlink( ABSPATH . 'uploads/' . MCM_Backup_Store::DIR . $f ) : @rmdir( ABSPATH . 'uploads/' . MCM_Backup_Store::DIR );
+}
+@rmdir( ABSPATH . 'uploads' );
 @unlink( $tmp . 'wp-config.php' );
-@unlink( $tmp . 'wp-config.php.mcm-backup' );
 @rmdir( $tmp );
 
 if ( ! $fallback ) {
