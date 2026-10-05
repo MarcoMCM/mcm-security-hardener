@@ -1,6 +1,6 @@
 MCM Security Hardener — Changelog
 
-= 1.32.0 (nog niet uitgebracht) =
+= 1.32.0 (2026-10-05) =
 * Fix: wp-config-back-up stond publiek in de webroot (class-backup-store.php,
   class-wpconfig-manager.php, class-db-prefix-manager.php,
   class-htaccess-manager.php)
