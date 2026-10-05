@@ -125,9 +125,11 @@ class MCM_WPConfig_Manager {
 			return $syntax_check;
 		}
 
-		// Keep one rolling backup so a bad write is a one-command restore,
-		// even in the case the syntax check above can't run on this host.
-		@copy( $config_path, $config_path . '.mcm-backup' );
+		// Back up the current file right before the one write, so a bad write
+		// is always a restore away, even when the syntax check above can't run
+		// on this host. Not next to wp-config.php any more: that copy was
+		// served as plain text. See MCM_Backup_Store.
+		MCM_Backup_Store::wpconfig( $config_path );
 
 		return file_put_contents( $config_path, $config_content ) !== false;
 	}

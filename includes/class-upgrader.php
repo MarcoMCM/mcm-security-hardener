@@ -23,8 +23,11 @@
  *    alleen als de foutsignatuur erin staat en ons blok actief is. Het
  *    bestaande blok gaat ongewijzigd terug (opgeslagen maar nog niet
  *    toegepaste instellingen worden niet meegenomen), met dezelfde
- *    syntaxcontrole en backup als bij "Opslaan & Toepassen". Elke reparatie
+ *    syntaxcontrole en back-up als bij "Opslaan & Toepassen". Elke reparatie
  *    wordt gemaild.
+ *  - 1.32.0 ruimt onze eigen achtergebleven kopie wp-config.php.mcm-backup
+ *    op: die wordt verplaatst naar de afgeschermde back-upmap
+ *    (MCM_Backup_Store::migrate_legacy()).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -53,7 +56,8 @@ class MCM_Upgrader {
 	 * bij te werken. 'settings' = callable die de instellingen aanpast
 	 * (alleen ontbrekende sleutels!), 'htaccess' = .htaccess herschrijven,
 	 * 'wpconfig_repair' = wp-config.php herstellen als de fout uit
-	 * comment_out_constants() (t/m 1.31.0) er sporen heeft achtergelaten.
+	 * comment_out_constants() (t/m 1.31.0) er sporen heeft achtergelaten,
+	 * 'legacy_backups' = oude back-ups omzetten (MCM_Backup_Store).
 	 */
 	private static function migrations() {
 		return [
@@ -84,6 +88,10 @@ class MCM_Upgrader {
 					}
 					return $settings;
 				},
+				// wp-config.php.mcm-backup stond publiek in de webroot (platte
+				// tekst: DB-credentials + salts). Verplaatsen naar de back-upmap,
+				// samen met de oude .bak/.sql-back-ups daar (op nginx publiek).
+				'legacy_backups' => true,
 			],
 		];
 	}
@@ -137,6 +145,7 @@ class MCM_Upgrader {
 		$settings = $original;
 		$htaccess = false;
 		$wpconfig = false;
+		$legacy   = false;
 
 		foreach ( self::migrations() as $version => $steps ) {
 			if ( version_compare( $from, $version, '>=' ) || version_compare( $version, MCM_SECURITY_VERSION, '>' ) ) {
@@ -150,6 +159,9 @@ class MCM_Upgrader {
 			}
 			if ( ! empty( $steps['wpconfig_repair'] ) ) {
 				$wpconfig = true;
+			}
+			if ( ! empty( $steps['legacy_backups'] ) ) {
+				$legacy = true;
 			}
 		}
 
@@ -185,6 +197,23 @@ class MCM_Upgrader {
 			}
 		}
 
+		// Mislukt omzetten verandert de status niet: dan staat het oude
+		// bestand er gewoon nog (en meldt de exposure-scanner het). Wel een
+		// mail, want een wp-config-kopie in de webroot is een lek.
+		$legacy_failed = [];
+		if ( $legacy ) {
+			$legacy_result = MCM_Backup_Store::migrate_legacy();
+			$notes = [];
+			if ( $legacy_result['moved'] ) {
+				$notes[] = sprintf( '%d oude back-up(s) omgezet naar uploads/%s/.', $legacy_result['moved'], MCM_Backup_Store::DIR );
+			}
+			if ( $legacy_result['failed'] ) {
+				$legacy_failed = $legacy_result['failed'];
+				$notes[]       = 'Niet omgezet, staat er nog: ' . implode( ', ', $legacy_failed ) . '.';
+			}
+			$messages = array_merge( $messages, $notes );
+		}
+
 		if ( $wpconfig && MCM_WPConfig_Manager::needs_marker_repair() ) {
 			if ( ! MCM_WPConfig_Manager::is_active() ) {
 				// Kan alleen als iemand het blok met de hand heeft weggehaald.
@@ -194,7 +223,7 @@ class MCM_Upgrader {
 				$repaired = MCM_WPConfig_Manager::repair_markers();
 				if ( true === $repaired ) {
 					$messages[] = 'wp-config.php hersteld: dubbele define()s uitgeschakeld.';
-					$mail[]     = "wp-config.php is hersteld. Door een fout in eerdere versies stond een constante twee keer in het bestand (PHP-waarschuwing \"already defined\" bij elke request). De dubbele define() is nu uitgeschakeld; het MCM-blok is ongewijzigd. Vorige versie: wp-config.php.mcm-backup.";
+					$mail[]     = "wp-config.php is hersteld. Door een fout in eerdere versies stond een constante twee keer in het bestand (PHP-waarschuwing \"already defined\" bij elke request). De dubbele define() is nu uitgeschakeld; het MCM-blok is ongewijzigd. Vorige versie: de nieuwste wp-config-*.php in uploads/" . MCM_Backup_Store::DIR . "/ (herstellen = eerste regel weghalen).";
 				} else {
 					$reason           = is_wp_error( $repaired ) ? $repaired->get_error_message() : 'wp-config.php kon niet worden geschreven.';
 					$result['status'] = 'failed';
@@ -220,6 +249,17 @@ class MCM_Upgrader {
 				"Automatische upgrade van MCM Security Hardener ({$from} → " . MCM_SECURITY_VERSION . ").\n\n" .
 				implode( "\n\n", $mail ) .
 				( 'failed' === $result['status'] ? "\n\nOpen Extra → MCM Security en klik \"Opslaan & Toepassen\" om de regels handmatig bij te werken." : '' )
+			);
+		}
+
+		if ( $legacy_failed ) {
+			MCM_Notifier::email(
+				sprintf( 'Upgrade naar %s: oude back-up niet opgeruimd', MCM_SECURITY_VERSION ),
+				"De automatische upgrade van MCM Security Hardener kon deze oude back-up(s) niet verplaatsen:\n\n" .
+				implode( "\n", $legacy_failed ) . "\n\n" .
+				"Een wp-config.php.mcm-backup is publiek op te vragen en bevat de DB-gegevens en salts: verwijder die handmatig (FTP/SSH), " .
+				"wp-config.php zelf staat er gewoon naast. Een .bak of .sql in uploads/" . MCM_Backup_Store::DIR . "/ is alleen op nginx publiek; " .
+				"verwijder of verplaats die als je hem niet meer nodig hebt."
 			);
 		}
 	}

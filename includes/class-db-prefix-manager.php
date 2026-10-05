@@ -20,7 +20,6 @@ class MCM_DB_Prefix_Manager {
 
 	const NONCE_ACTION          = 'mcm_db_prefix_change';
 	const NOTICE_DISMISS_OPTION = 'mcm_db_prefix_notice_dismissed';
-	const BACKUP_DIR            = 'mcm-security-backups';
 
 	public function __construct() {
 		add_action( 'admin_notices', [ $this, 'maybe_show_notice' ] );
@@ -380,7 +379,7 @@ class MCM_DB_Prefix_Manager {
 			return $syntax_check;
 		}
 
-		@copy( $path, $path . '.mcm-backup' );
+		MCM_Backup_Store::wpconfig( $path );
 
 		if ( false === file_put_contents( $path, $replaced ) ) {
 			return new WP_Error( 'write_failed', 'Kon wp-config.php niet schrijven.' );
@@ -390,28 +389,10 @@ class MCM_DB_Prefix_Manager {
 
 	/**
 	 * Schrijf een SQL-backup van wijzigende rijen weg in wp-content/uploads/mcm-security-backups/.
+	 * Regel 1 is de PHP-guard van MCM_Backup_Store: weghalen vóór het importeren.
 	 */
 	private static function create_backup( $old_prefix, array $tables ) {
 		global $wpdb;
-
-		$upload_dir = wp_upload_dir();
-		$backup_dir = trailingslashit( $upload_dir['basedir'] ) . self::BACKUP_DIR;
-		if ( ! wp_mkdir_p( $backup_dir ) ) {
-			return new WP_Error( 'mkdir_failed', 'Kon backup-directory niet aanmaken: ' . $backup_dir );
-		}
-
-		// Beveilig directory tegen publieke toegang.
-		$htaccess = $backup_dir . '/.htaccess';
-		if ( ! file_exists( $htaccess ) ) {
-			@file_put_contents( $htaccess, "Require all denied\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n" );
-		}
-		$index = $backup_dir . '/index.php';
-		if ( ! file_exists( $index ) ) {
-			@file_put_contents( $index, "<?php\n// Silence is golden.\n" );
-		}
-
-		$filename = sprintf( 'db-prefix-backup-%s.sql', gmdate( 'Ymd-His' ) );
-		$filepath = $backup_dir . '/' . $filename;
 
 		$sql  = "-- MCM Security Hardener — DB Prefix Migration Backup\n";
 		$sql .= '-- Datum: ' . gmdate( 'c' ) . "\n";
@@ -450,8 +431,10 @@ class MCM_DB_Prefix_Manager {
 			$sql .= self::row_to_insert( $old_prefix . 'usermeta', $row );
 		}
 
-		if ( false === file_put_contents( $filepath, $sql ) ) {
-			return new WP_Error( 'backup_write_failed', 'Kon backup-bestand niet schrijven: ' . $filepath );
+		// Als .sql.php met guard (MCM_Backup_Store): ook op nginx niet publiek.
+		$filepath = MCM_Backup_Store::save( 'db-prefix-backup', '.sql.php', $sql, 0 );
+		if ( false === $filepath ) {
+			return new WP_Error( 'backup_write_failed', 'Kon de SQL-backup niet schrijven in uploads/' . MCM_Backup_Store::DIR . '/.' );
 		}
 
 		return $filepath;

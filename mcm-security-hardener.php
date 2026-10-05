@@ -35,6 +35,7 @@ require_once MCM_SECURITY_DIR . 'includes/class-finding-ignore.php';
 require_once MCM_SECURITY_DIR . 'includes/class-staging-detector.php';
 require_once MCM_SECURITY_DIR . 'includes/class-basic-auth.php';
 MCM_Basic_Auth::init();
+require_once MCM_SECURITY_DIR . 'includes/class-backup-store.php';
 require_once MCM_SECURITY_DIR . 'includes/class-wpconfig-manager.php';
 require_once MCM_SECURITY_DIR . 'includes/class-htaccess-manager.php';
 require_once MCM_SECURITY_DIR . 'includes/class-upgrader.php';

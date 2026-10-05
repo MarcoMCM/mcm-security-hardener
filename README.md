@@ -138,6 +138,7 @@ mcm-security-hardener/
 ├── includes/
 │   ├── class-admin-page.php           Tools → MCM Security UI
 │   ├── class-wpconfig-manager.php     Schrijft constants naar wp-config.php
+│   ├── class-backup-store.php         Eigen back-ups (wp-config, .htaccess, SQL) als .php met guard
 │   ├── class-htaccess-manager.php     Schrijft regels naar .htaccess
 │   ├── class-upgrader.php             Eenmalige migratie na een plugin-update
 │   ├── class-lockdown-manager.php     Plugin/theme lockdown + owner-detectie

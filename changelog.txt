@@ -1,6 +1,62 @@
 MCM Security Hardener — Changelog
 
 = 1.32.0 (nog niet uitgebracht) =
+* Fix: wp-config-back-up stond publiek in de webroot (class-backup-store.php,
+  class-wpconfig-manager.php, class-db-prefix-manager.php,
+  class-htaccess-manager.php)
+  - Aanleiding: sinds 1.27.0 zette elke schrijfactie op wp-config.php
+    (opslaan, profiel kiezen, activeren, de debug-knop, de DB-prefix-
+    migratie) een kopie wp-config.php.mcm-backup naast wp-config.php. Die
+    extensie kent de webserver niet, dus Apache en nginx serveerden hem als
+    platte tekst: DB-credentials en salts publiek. Lokaal geverifieerd: HEAD
+    200 met de volle bestandsgrootte. De FilesMatch in de root-.htaccess
+    kende de naam niet, en op nginx telt die toch niet.
+  - Nieuw: MCM_Backup_Store. Alle back-ups van de plugin staan nu in
+    uploads/mcm-security-backups/ als .php-bestand met één guard-regel
+    bovenaan (exit + __halt_compiler). Een verzoek voert het bestand uit en
+    stopt meteen: lege pagina. Dat werkt ook op nginx; op Apache blijft de
+    deny-.htaccess als extra laag. Herstellen = de eerste regel weghalen, de
+    rest is byte voor byte het origineel (tail -n +2).
+  - Bewust niet boven de webroot: de exposure-scanner meldt een
+    wp-config-kopie daar zelf als HIGH, bij WordPress in een submap is
+    dirname(ABSPATH) nog steeds webroot, en een FTP-account dat in de
+    webroot begint kan er dan niet bij. Ook niet alleen in het geheugen of
+    een optie: als wp-config.php de site breekt, is dat niet terug te halen.
+  - wp-config: wp-config-<datum>.php, laatste 5. Geen nieuwe als de inhoud
+    gelijk is aan de nieuwste, anders duwt elk "Opslaan" een echt andere,
+    oudere versie eruit. De back-up komt nu vóór de eerste schrijfactie:
+    write() herschreef het bestand via remove() al vóórdat de oude kopie
+    werd gemaakt, dus die was nooit het origineel.
+  - Dezelfde opslag voor de .htaccess-back-ups (htaccess-<datum>.php,
+    laatste 10) en de SQL-back-up van de DB-prefix-migratie
+    (db-prefix-backup-<datum>.sql.php; eerste regel weghalen vóór het
+    importeren). Die leunden alleen op de .htaccess en waren op nginx
+    publiek.
+  - <datum> eindigt op microseconden. Met alleen "-2" bij twee
+    schrijfacties in dezelfde seconde sorteerde de nieuwste vóór de oudste,
+    en ruimde het opruimen juist de nieuwste op (gezien bij het testen).
+* Upgrade-routine ruimt de oude back-ups op (class-upgrader.php, migratie
+  1.32.0)
+  - wp-config.php.mcm-backup (in ABSPATH of de map erboven) en
+    .htaccess.mcm-backup (Basic Auth, 1.8.0-1.8.1) gaan naar de back-upmap
+    als wp-config-/htaccess-<wijzigingsdatum>-oud.php. htaccess-*.bak en
+    db-prefix-backup-*.sql in die map krijgen de guard en .php erachter.
+  - Het origineel gaat pas weg als de nieuwe kopie is teruggelezen en
+    klopt. Lukt dat niet, dan blijft het staan, komt het in het
+    upgrade-resultaat en gaat er een mail uit. De status blijft "ok" (de
+    admin-melding bij "failed" gaat over de .htaccess).
+  - wp-config.php zelf blijft onaangeroerd. De regel "wp-config.php wordt
+    nooit aangeraakt" in de upgrader is daarop aangescherpt (akkoord Marco,
+    5 okt 2026).
+  - Getest op een lokale kopie van parre-en-deden (Apache): 3 bestanden
+    omgezet, inhoud identiek, oude URL 404, nieuwe kopie 403 en in een map
+    zonder .htaccess 200 met 0 bytes. Twee keer opslaan gaf één back-up,
+    gelijk aan wp-config.php van vóór het schrijven. 7 snelle
+    wp-config-versies: de nieuwste 5 bleven staan; 11 .htaccess-versies: de
+    nieuwste 10. Back-upmap niet schrijfbaar: origineel blijft staan,
+    status ok, mail verstuurd. nginx niet live getest: Local's nginx-config
+    weigert .php in uploads, en elders voert PHP het bestand uit en stopt
+    de guard.
 * Exposure-scanner: back-upmappen in wp-content, nginx-bewust, HTTP-controle
   (class-file-exposure-scanner.php)
   - Aanleiding: op pensioenfonds-sagittarius.nl (Plesk, "FPM served by
@@ -28,8 +84,10 @@ MCM Security Hardener — Changelog
     mcm_exposure_server_software, bijgewerkt op admin_init). Nooit gezien =
     oud gedrag, met een melding in het dashboard.
   - Gevolg op nginx-sites: onze eigen uploads/mcm-security-backups/
-    (htaccess-*.bak, db-prefix-backup-*.sql) leunt op een .htaccess en wordt
-    daar voortaan gemeld. Terecht: die map is daar publiek.
+    (htaccess-*.bak, db-prefix-backup-*.sql) leunde op een .htaccess en werd
+    daar gemeld. Terecht: die map was daar publiek. Opgelost in dezelfde
+    release (zie bovenaan): die back-ups zijn nu .php met guard, en de
+    upgrade-routine zet de oude om.
   - HTTP-controle: per groep bestanden die hetzelfde antwoord moeten krijgen
     (zelfde beslissende .htaccess, bovenste map en extensie) één HEAD-verzoek,
     dus alleen kopregels en er wordt niets gedownload. 200 = publiek,
@@ -77,10 +135,9 @@ MCM Security Hardener — Changelog
   - Die schrijft deze plugin zelf in de webroot (class-wpconfig-manager.php
     en class-db-prefix-manager.php). Het patroon kende alleen .bak, .save,
     .old, .orig, .tmp en .txt. Op een lokale Apache-kopie gaf een HEAD 200 met
-    de volle bestandsgrootte: DB-credentials publiek. Staat nog open: het
-    bestand niet meer in de webroot schrijven. Dat zit in de wpconfig- en
-    db-prefix-manager en hoort bij een aparte fix.
-= 1.31.1 (nog niet uitgebracht) =
+    de volle bestandsgrootte: DB-credentials publiek. De plugin schrijft het
+    bestand niet meer en de upgrade-routine ruimt het op (zie bovenaan). De
+    scanner-regel blijft voor sites waar opruimen niet lukte.
 * Fix: dubbele define()s in wp-config.php (class-wpconfig-manager.php)
   - Aanleiding: pensioenfonds-sagittarius.nl had WP_DEBUG twee keer in
     wp-config.php (regel 3 en 81, na heractiveren 10 en 99). PHP gaf bij
@@ -106,18 +163,19 @@ MCM Security Hardener — Changelog
     wp-config-controle meldt hem dan als dubbel.
 * write() werkt nu volledig in het geheugen: oud blok weg, regels terug,
   opnieuw uitcommentariëren, nieuw blok, syntaxcontrole, en pas dan één
-  backup en één schrijfactie. Een afgekeurde wijziging laat wp-config.php
-  dus helemaal ongemoeid. wp-config.php.mcm-backup is nu de versie van
-  vóór de wijziging (was: de versie na het weghalen van het blok).
-  Verandert er niets, dan wordt er niets geschreven en geen backup gemaakt.
+  back-up (MCM_Backup_Store, zie bovenaan) en één schrijfactie. Een
+  afgekeurde wijziging laat wp-config.php dus helemaal ongemoeid, en de
+  back-up is altijd de versie van vóór de wijziging. Verandert er niets,
+  dan wordt er niets geschreven en geen back-up gemaakt.
 * Upgrade-routine: herstelt beschadigde wp-config.php-bestanden (migratie
-  1.31.1, class-upgrader.php)
+  1.31.1, class-upgrader.php; draait ook bij een update van 1.31.0
+  rechtstreeks naar 1.32.0, na het omzetten van de oude back-ups)
   - Alleen als de foutsignatuur erin staat (een "// MCM_DISABLED: "-regel
     zonder iets erachter; een correcte markering heeft altijd de define()
     erachter) en ons blok actief is.
   - MCM_WPConfig_Manager::repair_markers() zet het bestaande blok ongewijzigd
     terug en schakelt de dubbele define()s uit, met dezelfde syntaxcontrole
-    en backup. Bewust niet write() met de opgeslagen instellingen: "Opslaan"
+    en back-up. Bewust niet write() met de opgeslagen instellingen: "Opslaan"
     bewaart instellingen zonder ze toe te passen, en een reparatie mag ze
     niet ongevraagd toepassen.
   - Elke reparatie (en elke mislukte) gaat per mail via de Notifier. Melding

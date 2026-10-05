@@ -155,34 +155,11 @@ class MCM_Htaccess_Manager {
 	}
 
 	/**
-	 * Back-up van de huidige .htaccess in de al afgeschermde backup-map.
-	 * Houdt de laatste 10.
+	 * Back-up van de huidige .htaccess in de back-upmap (MCM_Backup_Store:
+	 * .php met guard, dus ook op nginx niet publiek). Houdt de laatste 10.
 	 */
 	private static function backup( $content ) {
-		$uploads = wp_upload_dir( null, false );
-		if ( ! empty( $uploads['error'] ) ) {
-			return;
-		}
-		$dir = trailingslashit( $uploads['basedir'] ) . 'mcm-security-backups';
-		if ( ! wp_mkdir_p( $dir ) ) {
-			return;
-		}
-		if ( ! file_exists( $dir . '/.htaccess' ) ) {
-			file_put_contents( $dir . '/.htaccess', "Require all denied\nDeny from all\n" );
-		}
-		if ( ! file_exists( $dir . '/index.php' ) ) {
-			file_put_contents( $dir . '/index.php', "<?php // Silence is golden.\n" );
-		}
-
-		file_put_contents( $dir . '/htaccess-' . gmdate( 'Ymd-His' ) . '.bak', $content );
-
-		$backups = glob( $dir . '/htaccess-*.bak' );
-		if ( $backups && count( $backups ) > 10 ) {
-			sort( $backups );
-			foreach ( array_slice( $backups, 0, count( $backups ) - 10 ) as $old ) {
-				@unlink( $old );
-			}
-		}
+		MCM_Backup_Store::save( 'htaccess', '.php', $content, 10 );
 	}
 
 	/**
