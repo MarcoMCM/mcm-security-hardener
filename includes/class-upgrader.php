@@ -18,8 +18,13 @@
  *    bewust géén ontbrekende standaardwaarden aangevuld: dat kan onbedoeld
  *    regels aanzetten die iemand nooit heeft gekozen.
  *  - .htaccess wordt alleen herschreven als ons blok er al staat, en alleen
- *    met controle achteraf (loopback + automatisch terugzetten). wp-config.php
- *    wordt nooit aangeraakt.
+ *    met controle achteraf (loopback + automatisch terugzetten).
+ *  - wp-config.php wordt alleen aangeraakt voor de reparatie uit 1.31.1, en
+ *    alleen als de foutsignatuur erin staat en ons blok actief is. Het
+ *    bestaande blok gaat ongewijzigd terug (opgeslagen maar nog niet
+ *    toegepaste instellingen worden niet meegenomen), met dezelfde
+ *    syntaxcontrole en backup als bij "Opslaan & Toepassen". Elke reparatie
+ *    wordt gemaild.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -46,13 +51,20 @@ class MCM_Upgrader {
 	/**
 	 * Per versie: welke stappen zijn nodig om een site van de vorige versie
 	 * bij te werken. 'settings' = callable die de instellingen aanpast
-	 * (alleen ontbrekende sleutels!), 'htaccess' = .htaccess herschrijven.
+	 * (alleen ontbrekende sleutels!), 'htaccess' = .htaccess herschrijven,
+	 * 'wpconfig_repair' = wp-config.php herstellen als de fout uit
+	 * comment_out_constants() (t/m 1.31.0) er sporen heeft achtergelaten.
 	 */
 	private static function migrations() {
 		return [
 			// robots.txt-fix in block_log_txt_files; geen nieuwe instellingen.
 			'1.30.0' => [
 				'htaccess' => true,
+			],
+			// Dubbele define()s: een lege regel boven een define() kreeg de
+			// MCM_DISABLED-markering en de define() bleef actief.
+			'1.31.1' => [
+				'wpconfig_repair' => true,
 			],
 		];
 	}
@@ -105,7 +117,7 @@ class MCM_Upgrader {
 		$original = get_option( 'mcm_security_settings', [] );
 		$settings = $original;
 		$htaccess = false;
-		$written  = null;
+		$wpconfig = false;
 
 		foreach ( self::migrations() as $version => $steps ) {
 			if ( version_compare( $from, $version, '>=' ) || version_compare( $version, MCM_SECURITY_VERSION, '>' ) ) {
@@ -116,6 +128,9 @@ class MCM_Upgrader {
 			}
 			if ( ! empty( $steps['htaccess'] ) ) {
 				$htaccess = true;
+			}
+			if ( ! empty( $steps['wpconfig_repair'] ) ) {
+				$wpconfig = true;
 			}
 		}
 
@@ -130,36 +145,62 @@ class MCM_Upgrader {
 			'status'  => 'ok',
 			'message' => '',
 		];
+		$messages = [];
+		$mail     = []; // Alinea's voor de mail; leeg = geen mail.
 
 		if ( $htaccess ) {
 			if ( ! MCM_Htaccess_Manager::is_active() ) {
-				$result['message'] = '.htaccess overgeslagen: het MCM-blok staat niet in de .htaccess (bewust verwijderd of nooit toegepast).';
+				$messages[] = '.htaccess overgeslagen: het MCM-blok staat niet in de .htaccess (bewust verwijderd of nooit toegepast).';
 			} else {
 				$written = MCM_Htaccess_Manager::write( $settings, true );
 				if ( is_wp_error( $written ) ) {
-					$result['status']  = 'failed';
-					$result['message'] = $written->get_error_message();
+					$result['status'] = 'failed';
+					$messages[]       = $written->get_error_message();
+					// Bij 'reverted' heeft de htaccess-manager zelf al gemaild.
+					if ( 'reverted' !== $written->get_error_code() ) {
+						$mail[] = "De .htaccess kon niet worden bijgewerkt. De oude regels staan er nog.\nReden: " . $written->get_error_message();
+					}
 				} else {
-					$result['message'] = '.htaccess bijgewerkt en gecontroleerd.';
+					$messages[] = '.htaccess bijgewerkt en gecontroleerd.';
 				}
 			}
 		}
 
-		// Versie altijd ophogen, ook bij een mislukte .htaccess-stap: anders
-		// probeert elke pageview het opnieuw (loopbacks + mails). De
-		// mislukking blijft zichtbaar via mail en admin-melding; opnieuw
-		// opslaan in de instellingen past de regels alsnog toe.
+		if ( $wpconfig && MCM_WPConfig_Manager::needs_marker_repair() ) {
+			if ( ! MCM_WPConfig_Manager::is_active() ) {
+				// Kan alleen als iemand het blok met de hand heeft weggehaald.
+				$messages[] = 'wp-config.php: lege MCM_DISABLED-regels gevonden, maar het MCM-blok staat er niet. Niet aangeraakt.';
+				$mail[]     = "In wp-config.php staan lege \"// MCM_DISABLED: \"-regels, maar het MCM-blok staat er niet. Er is niets gewijzigd; kijk het bestand na.";
+			} else {
+				$repaired = MCM_WPConfig_Manager::repair_markers();
+				if ( true === $repaired ) {
+					$messages[] = 'wp-config.php hersteld: dubbele define()s uitgeschakeld.';
+					$mail[]     = "wp-config.php is hersteld. Door een fout in eerdere versies stond een constante twee keer in het bestand (PHP-waarschuwing \"already defined\" bij elke request). De dubbele define() is nu uitgeschakeld; het MCM-blok is ongewijzigd. Vorige versie: wp-config.php.mcm-backup.";
+				} else {
+					$reason           = is_wp_error( $repaired ) ? $repaired->get_error_message() : 'wp-config.php kon niet worden geschreven.';
+					$result['status'] = 'failed';
+					$messages[]       = 'wp-config.php niet hersteld: ' . $reason;
+					$mail[]           = "wp-config.php kon niet worden hersteld (dubbele define()s uit eerdere versies). Er is niets gewijzigd.\nReden: " . $reason;
+				}
+			}
+		}
+
+		$result['message'] = implode( ' ', $messages );
+
+		// Versie altijd ophogen, ook bij een mislukte stap: anders probeert
+		// elke pageview het opnieuw (loopbacks + mails). De mislukking blijft
+		// zichtbaar via mail en admin-melding; opnieuw opslaan in de
+		// instellingen past de regels alsnog toe.
 		update_option( self::VERSION_OPTION, MCM_SECURITY_VERSION, true );
 		update_option( self::RESULT_OPTION, $result, false );
 		delete_transient( self::LOCK_KEY );
 
-		// Bij 'reverted' heeft de htaccess-manager zelf al gemaild.
-		if ( 'failed' === $result['status'] && 'reverted' !== $written->get_error_code() ) {
+		if ( $mail ) {
 			MCM_Notifier::email(
-				sprintf( 'Upgrade naar %s: .htaccess niet bijgewerkt', MCM_SECURITY_VERSION ),
-				"De automatische upgrade van MCM Security Hardener ({$from} → " . MCM_SECURITY_VERSION . ") kon de .htaccess niet bijwerken.\n\n" .
-				'Reden: ' . $result['message'] . "\n\n" .
-				"De oude regels staan er nog. Open Extra → MCM Security en klik \"Opslaan & Toepassen\" om ze handmatig bij te werken."
+				sprintf( 'failed' === $result['status'] ? 'Upgrade naar %s: niet alles bijgewerkt' : 'Upgrade naar %s: wp-config.php hersteld', MCM_SECURITY_VERSION ),
+				"Automatische upgrade van MCM Security Hardener ({$from} → " . MCM_SECURITY_VERSION . ").\n\n" .
+				implode( "\n\n", $mail ) .
+				( 'failed' === $result['status'] ? "\n\nOpen Extra → MCM Security en klik \"Opslaan & Toepassen\" om de regels handmatig bij te werken." : '' )
 			);
 		}
 	}
@@ -173,7 +214,7 @@ class MCM_Upgrader {
 			return;
 		}
 		printf(
-			'<div class="notice notice-warning"><p><strong>MCM Security %s: .htaccess niet automatisch bijgewerkt.</strong> %s <a href="%s">Naar de instellingen</a> en klik &ldquo;Opslaan &amp; Toepassen&rdquo;.</p></div>',
+			'<div class="notice notice-warning"><p><strong>MCM Security %s: niet alles automatisch bijgewerkt.</strong> %s <a href="%s">Naar de instellingen</a> en klik &ldquo;Opslaan &amp; Toepassen&rdquo;.</p></div>',
 			esc_html( MCM_SECURITY_VERSION ),
 			esc_html( $result['message'] ),
 			esc_url( admin_url( 'tools.php?page=mcm-security' ) )

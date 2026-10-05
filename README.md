@@ -164,8 +164,11 @@ mcm-security-hardener/
 │   ├── class-profiles.php             Basic/Standard/Strict/Staging-profielen
 │   ├── class-finding-ignore.php        "Markeer als veilig" — gedeelde ignore-lijst
 │   └── class-notifier.php             Centrale email/notice-helper
+├── tests/                             Regressietests (niet in de release-zip)
 └── vendor/plugin-update-checker/      GitHub self-update (YahnisElsts/PUC v5)
 ```
+
+Tests draaien vanuit de pluginmap met `php tests/wpconfig-manager-test.php` (exit-code 0 = alles goed).
 
 ---
 

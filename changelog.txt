@@ -1,5 +1,57 @@
 MCM Security Hardener — Changelog
 
+= 1.31.1 (nog niet uitgebracht) =
+* Fix: dubbele define()s in wp-config.php (class-wpconfig-manager.php)
+  - Aanleiding: pensioenfonds-sagittarius.nl had WP_DEBUG twee keer in
+    wp-config.php (regel 3 en 81, na heractiveren 10 en 99). PHP gaf bij
+    elke request "Constant WP_DEBUG already defined"; de wp-config-controle
+    meldde wpconfig-dup:WP_DEBUG:2.
+  - Oorzaak (sinds 1.4.0): het patroon in comment_out_constants() begon met
+    \s*, en in /m-modus matcht dat ook regeleinden. Stond er een lege regel
+    boven de define(), dan begon de match op die lege regel: de markering
+    "// MCM_DISABLED: " kwam op de lege regel en de define() bleef actief.
+    Gold voor elke beheerde constante (WP_DEBUG, WP_DEBUG_DISPLAY,
+    DISALLOW_FILE_EDIT, de secret keys, ...) en kwam bij elke keer
+    toepassen terug. De waarde uit ons blok won wel (het blok staat
+    bovenaan), dus de hardening zelf werkte.
+  - Nu kan een match nooit over meerdere regels lopen ([ \t]* in plaats van
+    \s*, geen regeleinden in de waarde).
+  - Tweede fout met dezelfde oorzaak: een define() over meerdere regels werd
+    alleen op de eerste regel uitgecommentarieerd, met een parse error als
+    resultaat. php -l keurde dat af, maar dan had remove() het blok al
+    weggeschreven (site zonder hardening, terwijl de melding "er is niets
+    weggeschreven" zei). Zonder exec() (o.a. op php-fpm-hosts) liet de
+    tokenizer-controle het door: wp-config.php met een parse error. Zo'n
+    define() matcht nu niet meer en blijft gewoon actief; de
+    wp-config-controle meldt hem dan als dubbel.
+* write() werkt nu volledig in het geheugen: oud blok weg, regels terug,
+  opnieuw uitcommentariëren, nieuw blok, syntaxcontrole, en pas dan één
+  backup en één schrijfactie. Een afgekeurde wijziging laat wp-config.php
+  dus helemaal ongemoeid. wp-config.php.mcm-backup is nu de versie van
+  vóór de wijziging (was: de versie na het weghalen van het blok).
+  Verandert er niets, dan wordt er niets geschreven en geen backup gemaakt.
+* Upgrade-routine: herstelt beschadigde wp-config.php-bestanden (migratie
+  1.31.1, class-upgrader.php)
+  - Alleen als de foutsignatuur erin staat (een "// MCM_DISABLED: "-regel
+    zonder iets erachter; een correcte markering heeft altijd de define()
+    erachter) en ons blok actief is.
+  - MCM_WPConfig_Manager::repair_markers() zet het bestaande blok ongewijzigd
+    terug en schakelt de dubbele define()s uit, met dezelfde syntaxcontrole
+    en backup. Bewust niet write() met de opgeslagen instellingen: "Opslaan"
+    bewaart instellingen zonder ze toe te passen, en een reparatie mag ze
+    niet ongevraagd toepassen.
+  - Elke reparatie (en elke mislukte) gaat per mail via de Notifier. Melding
+    en mail bij een mislukte upgrade-stap zijn algemener geformuleerd
+    (".htaccess" of "wp-config.php").
+  - De regel "wp-config.php wordt nooit aangeraakt" in de upgrade-routine
+    geldt dus niet meer voor deze ene reparatie.
+* check_syntax() laadt wp-admin/includes/file.php als wp_tempnam() ontbreekt.
+  In een wp-cron-request (waar de upgrade-routine draait) is die niet
+  geladen; met exec() beschikbaar gaf dat een fatal error.
+* Nieuw: tests/wpconfig-manager-test.php (php tests/wpconfig-manager-test.php).
+  Regressietests voor comment-out, write() en de reparatie, met php -l én
+  met de tokenizer-terugval. Zit niet in de release-zip (.gitattributes).
+
 = 1.31.0 (2026-09-28) =
 * Fix: de login-slug lekte naar uitgelogde bezoekers (class-login-url-manager.php)
   - Uitgelogd /wp-admin/ gaf via auth_redirect() een 302 naar de slug.

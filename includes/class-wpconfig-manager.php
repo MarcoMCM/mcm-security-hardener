@@ -20,34 +20,100 @@ class MCM_WPConfig_Manager {
 	 * Write security constants to wp-config.php.
 	 */
 	public static function write( array $settings ) {
+		return self::rewrite( self::build_lines( $settings ), self::get_managed_constants( $settings ) );
+	}
+
+	/**
+	 * Repair a wp-config.php damaged by comment_out_constants() up to and
+	 * including 1.31.0 (see needs_marker_repair()).
+	 *
+	 * Puts the block that is in the file now back unchanged, with the same
+	 * constants commented out, through the same rewrite as write(). It
+	 * deliberately does not rebuild the block from the settings: "Opslaan"
+	 * stores settings without applying them, and a repair must not apply
+	 * them unasked.
+	 *
+	 * @return true|WP_Error
+	 */
+	public static function repair_markers() {
+		$config_path = self::get_config_path();
+		$content     = $config_path ? file_get_contents( $config_path ) : false;
+		$pattern     = '/' . preg_quote( self::START_MARKER, '/' ) . '(.*?)' . preg_quote( self::END_MARKER, '/' ) . '/s';
+		if ( false === $content || ! preg_match( $pattern, $content, $m ) ) {
+			return new WP_Error( 'no_block', 'Het MCM-blok staat niet in wp-config.php.' );
+		}
+
+		$lines     = array_values( array_filter( array_map( 'trim', preg_split( '/\r?\n/', $m[1] ) ), 'strlen' ) );
+		$constants = [];
+		foreach ( $lines as $line ) {
+			if ( preg_match( '/^define\(\s*\'([A-Z0-9_]+)\'/', $line, $c ) ) {
+				$constants[] = $c[1];
+			}
+		}
+
+		return self::rewrite( $lines, $constants );
+	}
+
+	/**
+	 * Damage left by comment_out_constants() up to and including 1.31.0: a
+	 * "// MCM_DISABLED: " line with nothing after it. The match started on
+	 * the blank line above the define(), so the marker landed there and the
+	 * define() itself stayed active (a duplicate define). A marker we set
+	 * correctly is always followed by the define() it disabled.
+	 */
+	public static function needs_marker_repair() {
+		$config_path = self::get_config_path();
+		if ( ! $config_path || ! is_readable( $config_path ) ) {
+			return false;
+		}
+		return (bool) preg_match( '/^\/\/ MCM_DISABLED: [ \t]*\r?$/m', (string) file_get_contents( $config_path ) );
+	}
+
+	/**
+	 * Rewrite wp-config.php with the given block lines, entirely in memory:
+	 * remove the old block and restore commented-out lines, comment out the
+	 * constants again, insert the new block, check the syntax, and only then
+	 * make one backup of the original and do one write. Up to 1.31.0 remove()
+	 * already wrote the file before the syntax check, so a rejected write
+	 * left the site without the block.
+	 *
+	 * @param string[] $lines     define() lines for the block; empty = no block.
+	 * @param string[] $constants Constants to comment out elsewhere in the file.
+	 * @return bool|WP_Error
+	 */
+	private static function rewrite( array $lines, array $constants ) {
 		$config_path = self::get_config_path();
 		if ( ! $config_path || ! is_writable( $config_path ) ) {
 			return new WP_Error( 'not_writable', 'wp-config.php is niet schrijfbaar.' );
 		}
 
-		// First remove any existing block and restore commented-out lines.
-		self::remove();
-
-		$lines = self::build_lines( $settings );
-		if ( empty( $lines ) ) {
-			return true;
+		$original = file_get_contents( $config_path );
+		if ( false === $original ) {
+			return new WP_Error( 'not_readable', 'wp-config.php is niet leesbaar.' );
 		}
 
-		$config_content = file_get_contents( $config_path );
+		// First remove any existing block and restore commented-out lines.
+		$config_content = self::strip_block( $original );
 
-		// Comment out existing define() calls for the same constants to avoid duplicates.
-		$constants = self::get_managed_constants( $settings );
-		$config_content = self::comment_out_constants( $config_content, $constants );
+		if ( ! empty( $lines ) ) {
+			// Comment out existing define() calls for the same constants to avoid duplicates.
+			$config_content = self::comment_out_constants( $config_content, $constants );
 
-		$block  = self::START_MARKER . "\n";
-		$block .= implode( "\n", $lines ) . "\n";
-		$block .= self::END_MARKER . "\n\n";
+			$block  = self::START_MARKER . "\n";
+			$block .= implode( "\n", $lines ) . "\n";
+			$block .= self::END_MARKER . "\n\n";
 
-		// Insert right after the opening <?php tag.
-		$pos = strpos( $config_content, '<?php' );
-		if ( false !== $pos ) {
-			$insert_at      = $pos + 5; // After <?php
-			$config_content = substr( $config_content, 0, $insert_at ) . "\n" . $block . substr( $config_content, $insert_at );
+			// Insert right after the opening <?php tag.
+			$pos = strpos( $config_content, '<?php' );
+			if ( false !== $pos ) {
+				$insert_at      = $pos + 5; // After <?php
+				$config_content = substr( $config_content, 0, $insert_at ) . "\n" . $block . substr( $config_content, $insert_at );
+			}
+		}
+
+		// Nothing changes: no write and no new backup.
+		if ( $config_content === $original ) {
+			return true;
 		}
 
 		// Safety net: never write a version of wp-config.php that isn't valid PHP.
@@ -89,6 +155,10 @@ class MCM_WPConfig_Manager {
 		$binary_is_fpm = (bool) preg_match( '/fpm/i', basename( $php_binary ) );
 
 		if ( ! $binary_is_fpm && function_exists( 'exec' ) && ! in_array( 'exec', array_map( 'trim', explode( ',', (string) ini_get( 'disable_functions' ) ) ), true ) ) {
+			// Not loaded in wp-cron requests, where the upgrade routine runs.
+			if ( ! function_exists( 'wp_tempnam' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
 			$tmp_file = wp_tempnam( 'mcm-wpconfig-check' );
 			if ( $tmp_file ) {
 				file_put_contents( $tmp_file, $content );
@@ -145,14 +215,19 @@ class MCM_WPConfig_Manager {
 
 		$content = file_get_contents( $config_path );
 
+		return file_put_contents( $config_path, self::strip_block( $content ) ) !== false;
+	}
+
+	/**
+	 * Remove our block and restore the lines we commented out (in memory).
+	 */
+	private static function strip_block( $content ) {
 		// Remove our injected block.
 		$pattern = '/' . preg_quote( self::START_MARKER, '/' ) . '.*?' . preg_quote( self::END_MARKER, '/' ) . '\s*/s';
 		$content = preg_replace( $pattern, '', $content );
 
 		// Restore any lines we commented out.
-		$content = self::restore_commented_constants( $content );
-
-		return file_put_contents( $config_path, $content ) !== false;
+		return self::restore_commented_constants( $content );
 	}
 
 	/**
@@ -314,9 +389,21 @@ class MCM_WPConfig_Manager {
 		// mis-detect where the value actually ends when it contains quotes,
 		// backslashes or backticks — exactly what WordPress's own secret-key
 		// generator produces, and exactly what corrupted a live site here.
-		$value = "(?:'(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\"|[^;]*?)";
+		//
+		// A match must never span lines, hence [ \t]* instead of \s* and no
+		// line breaks inside the value. Up to 1.31.0 the leading \s* also
+		// matched newlines, so with a blank line above the define() the match
+		// started on that blank line: the marker landed there and the define()
+		// stayed active (a duplicate define). And a define() spread over
+		// several lines got only its first line commented out: a parse error,
+		// which the tokenizer fallback in check_syntax() doesn't catch. Such a
+		// define() now doesn't match and simply stays active; the wp-config
+		// check then reports it as a duplicate. Not \h: without /u that also
+		// matches byte 0xA0.
+		$h     = '[ \t]*';
+		$value = "(?:'(?:[^'\\\\\\r\\n]|\\\\[^\\r\\n])*'|\"(?:[^\"\\\\\\r\\n]|\\\\[^\\r\\n])*\"|[^;\\r\\n]*?)";
 		foreach ( $constants as $name ) {
-			$pattern = '/^(\s*define\s*\(\s*[\'"]' . preg_quote( $name, '/' ) . '[\'"]\s*,\s*' . $value . '\s*\)\s*;.*)$/m';
+			$pattern = '/^(' . $h . 'define' . $h . '\(' . $h . '[\'"]' . preg_quote( $name, '/' ) . '[\'"]' . $h . ',' . $h . $value . $h . '\)' . $h . ';.*)$/m';
 			$content = preg_replace_callback(
 				$pattern,
 				function ( $matches ) {
