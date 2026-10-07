@@ -56,7 +56,7 @@ class MCM_Human_Verification {
 		// resultaat — ook als de credentials kloppen.
 		add_filter( 'authenticate',        [ $this, 'validate_login' ], 30, 3 );
 		add_filter( 'registration_errors', [ $this, 'validate_register' ], 10, 1 );
-		add_action( 'lostpassword_post',   [ $this, 'validate_lostpassword' ], 10, 1 );
+		add_action( 'lostpassword_post',   [ $this, 'validate_lostpassword' ], 10, 2 );
 	}
 
 	/**
@@ -229,9 +229,17 @@ class MCM_Human_Verification {
 
 	/**
 	 * Wachtwoord-vergeten-validatie.
+	 *
+	 * Overgeslagen als een ingelogde gebruiker de reset verstuurt voor een
+	 * account dat hij mag bewerken: de knop "Reset link versturen" op
+	 * user-edit.php en de rij-/bulkactie op users.php roepen retrieve_password()
+	 * aan zonder formulier, dus zonder HV-velden. Een bot is nooit ingelogd.
 	 */
-	public function validate_lostpassword( $errors ) {
+	public function validate_lostpassword( $errors, $user_data = false ) {
 		if ( ! is_wp_error( $errors ) ) {
+			return;
+		}
+		if ( $user_data instanceof WP_User && is_user_logged_in() && current_user_can( 'edit_user', $user_data->ID ) ) {
 			return;
 		}
 		if ( ! $this->is_valid_submission() ) {

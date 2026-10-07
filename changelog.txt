@@ -1,5 +1,26 @@
 MCM Security Hardener — Changelog
 
+= 1.33.1 (2026-10-07) =
+* Fix: "Reset link versturen" in wp-admin faalde altijd met "Aanvraag
+  mislukt — de menselijke verificatie was nog niet voltooid"
+  (class-human-verification.php)
+  - Aanleiding: Parre & Deden, 7 okt 2026. De knop op user-edit.php roept
+    via admin-ajax (send-password-reset) retrieve_password() aan. Die vuurt
+    lostpassword_post, en validate_lostpassword eiste daar mcm_hv_ts/sig,
+    die de admin-request niet meestuurt. Hetzelfde gold voor de rij- en
+    bulkactie "Wachtwoord reset verzenden" op users.php. Op elke site met
+    Human Verification aan kon een beheerder dus geen resetlink sturen.
+  - validate_lostpassword neemt nu het tweede argument van
+    lostpassword_post aan ($user_data) en slaat de controle over als een
+    ingelogde gebruiker de reset verstuurt voor een account dat hij mag
+    bewerken (current_user_can( 'edit_user' ), dezelfde controle als core in
+    wp_ajax_send_password_reset). Een bot is nooit ingelogd, dus de
+    bescherming van de openbare formulieren blijft gelijk.
+  - Uitgelogde aanvragen (wp-login.php, WooCommerce my-account, Avada) en
+    aanvragen van een ingelogde klant voor een ander account worden
+    gecontroleerd zoals voorheen.
+  - Geen migratie.
+
 = 1.33.0 (2026-10-05) =
 * Fix: "Vergrendel admin e-mail" deed niets zonder SecuPress
   (class-admin-email-lock.php, class-wpconfig-manager.php,
