@@ -17,6 +17,12 @@
  * bestaande user (privilege-escalatie van een al gekaapt lager account —
  * ook een realistisch aanvalspad). Beide worden hier gedekt.
  *
+ * wp2shell (sinds 1.34.0): past het account bij de wp2shell-aanval
+ * (MCM_User_Audit::wp2shell_match()), dan krijgt de mail een eigen
+ * onderwerp en begint hij met een waarschuwing en concrete stappen. Op een
+ * MCM-site zonder deze plugin bleven drie zulke beheerders in juli 2026
+ * drie maanden onopgemerkt; deze mail had ze op dag 1 gemeld.
+ *
  * Grens: dit vangt alleen promoties die via WordPress' eigen PHP-API lopen
  * (wp_insert_user(), WP_User::set_role(), wp-cli, etc). Een aanvaller die
  * met een eigen script rechtstreeks in de database schrijft — buiten WP's
@@ -61,9 +67,28 @@ class MCM_New_Admin_Alert {
 			return;
 		}
 
-		$subject = sprintf( 'Nieuw administrator-account: %s', $user->user_login );
+		// Past het account bij de wp2shell-aanval? Dan is dit geen vraag
+		// meer maar een inbraak, en moet dat het eerste zijn wat je leest.
+		$wp2shell = class_exists( 'MCM_User_Audit' )
+			? MCM_User_Audit::wp2shell_match( $user->user_login, $user->user_email )
+			: '';
 
-		$body  = "Er is zojuist een account gepromoveerd naar Administrator op deze site.\n\n";
+		$subject = sprintf( 'Nieuw administrator-account: %s', $user->user_login );
+		$body    = '';
+
+		if ( '' !== $wp2shell ) {
+			$subject = sprintf( 'WAARSCHUWING wp2shell-aanval — nieuw administrator-account: %s', $user->user_login );
+
+			$body .= "!! WAARSCHUWING: dit account past bij de wp2shell-aanval\n";
+			$body .= sprintf( "!! (%s).\n", $wp2shell );
+			$body .= "!! wp2shell is een lek in WordPress zelf (CVE-2026-63030 +\n";
+			$body .= "!! CVE-2026-60137, in 6.9.0–6.9.4 en 7.0.0–7.0.1) waarmee aanvallers\n";
+			$body .= "!! sinds juli 2026 massaal beheerders aanmaken. Ga ervan uit dat de\n";
+			$body .= "!! site NU is binnengedrongen.\n";
+			$body .= sprintf( "!! WordPress-versie nu: %s (lek dicht vanaf 6.9.5 en 7.0.2)\n\n", get_bloginfo( 'version' ) );
+		}
+
+		$body .= "Er is zojuist een account gepromoveerd naar Administrator op deze site.\n\n";
 		$body .= sprintf( "Gebruikersnaam:  %s\n", $user->user_login );
 		$body .= sprintf( "E-mailadres:     %s\n", $user->user_email );
 		$body .= sprintf( "Weergavenaam:    %s\n", $user->display_name );
@@ -71,9 +96,20 @@ class MCM_New_Admin_Alert {
 		$body .= sprintf( "Geregistreerd:   %s\n", $user->user_registered );
 		$body .= sprintf( "Uitgevoerd door: %s\n", self::current_actor_label() );
 		$body .= "\n----\n";
-		$body .= "Herken je dit account niet, of is de promotie onverwacht? Ga ervan uit\n";
-		$body .= "dat het verdacht is. Tools → MCM Security → User Audit kan het account\n";
-		$body .= "direct downgraden.\n";
+		if ( '' !== $wp2shell ) {
+			$body .= "ACTIE, nu meteen:\n";
+			$body .= "1. Zet dit account naar Abonnee: Tools → MCM Security → User Audit.\n";
+			$body .= "   Verwijder het pas na onderzoek, met een backup vooraf.\n";
+			$body .= "2. Werk WordPress bij als de versie hierboven nog lek is.\n";
+			$body .= "3. Zoek naar meer: andere vreemde accounts, achterdeuren in plugins en\n";
+			$body .= "   bestanden, code in de database. Klik op Tools → MCM Security bij\n";
+			$body .= "   \"Vreemde bestanden & mappen\" op \"Nu scannen\".\n";
+			$body .= "4. Vernieuw daarna wachtwoorden en salts.\n";
+		} else {
+			$body .= "Herken je dit account niet, of is de promotie onverwacht? Ga ervan uit\n";
+			$body .= "dat het verdacht is. Tools → MCM Security → User Audit kan het account\n";
+			$body .= "direct downgraden.\n";
+		}
 
 		MCM_Notifier::email( $subject, $body );
 	}

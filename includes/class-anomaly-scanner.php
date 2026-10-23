@@ -57,6 +57,15 @@
  *   vergelijkt daarom de actuele set PHP-type snippet-ID's in de database
  *   met de vorige scan, ongeacht hoe ze zijn ontstaan.
  *
+ * Sporen van de wp2shell-aanval in de database (sinds 1.34.0):
+ *   wp2shell is een lek in WordPress zelf (CVE-2026-63030 + CVE-2026-60137)
+ *   dat sinds juli 2026 massaal wordt misbruikt om beheerders aan te maken.
+ *   Op een MCM-site bleef dat drie maanden onopgemerkt. Deze scan meldt de
+ *   aanvallersaccounts (MCM_User_Audit::get_wp2shell_users()) en de
+ *   restanten die de exploit zelf in wp_posts achterlaat — zie
+ *   scan_wp2shell_traces(). Geen baseline: deze sporen horen er nooit, dus
+ *   elke scan meldt ze zolang ze er staan (de mail gaat één keer per set).
+ *
  * Bijstellen zonder code te wijzigen:
  *   - filter 'mcm_anomaly_root_whitelist'       (array van namen, lowercase)
  *   - filter 'mcm_anomaly_wpcontent_whitelist'  (array van namen, lowercase)
@@ -248,7 +257,9 @@ class MCM_Anomaly_Scanner {
 	 * @return array<int,array{type:string,reason:string,severity:string,path:string,relpath:string,is_dir:bool,size:int,mtime:int}>
 	 */
 	public static function scan() {
-		$findings = [];
+		// 0) Sporen van de wp2shell-aanval in de database. Als eerste, zodat
+		// ze bovenaan de tabel en de mail staan.
+		$findings = self::scan_wp2shell_traces();
 		$abspath  = untrailingslashit( ABSPATH );
 
 		// 1) Root.
@@ -296,6 +307,138 @@ class MCM_Anomaly_Scanner {
 		}
 
 		return $findings;
+	}
+
+	/**
+	 * Sporen van de wp2shell-aanval in de database.
+	 *
+	 * 1. Aanvallersaccounts, met welke rol dan ook (zie
+	 *    MCM_User_Audit::wp2shell_match()).
+	 * 2. Restanten van de exploit zelf. Op twee aangevallen MCM-sites (15
+	 *    aanvallen tussen 19 juli en 6 sep 2026) liet elke aanval hetzelfde
+	 *    paar achter:
+	 *    - een post van type 'request' met status 'parse'. Dat komt in
+	 *      WordPress niet voor (het privacy-type heet 'user_request').
+	 *    - een gepubliceerde 'customize_changeset' met datum 2020-01-01
+	 *      00:00:00 en een menu-item naar example.invalid, wp2shell.com of
+	 *      wpengine.com.
+	 *    Voor een changeset is één kenmerk genoeg: die datum, 'example.invalid'
+	 *    of 'wp2shell' in de inhoud, of een auteur die niet bestaat. Op de ene
+	 *    site bestond de auteur niet, op de andere wel, en een deel van de
+	 *    changesets had geen example.invalid: daarom meerdere kenmerken.
+	 *    "Auteur bestaat niet" telt alleen bij status 'publish': WordPress zet
+	 *    een gepubliceerde changeset meteen in de prullenbak, maar een concept
+	 *    van een verwijderde gebruiker blijft gewoon staan (delete_with_user =
+	 *    false, en de User Delete Guard laat inhoud ook staan).
+	 *    De oembed_cache-posts die de aanval ook maakt, zijn niet van gewone
+	 *    cache te onderscheiden en blijven buiten beschouwing.
+	 *
+	 * Op elf andere MCM-sites gaf geen van deze kenmerken een treffer (23 okt
+	 * 2026). Rechtstreeks met SQL: 'request' is geen geregistreerd post type
+	 * en WP_Query negeert een onbekende status.
+	 *
+	 * @return array<int,array{type:string,reason:string,severity:string,path:string,relpath:string,is_dir:bool,size:int,mtime:int}>
+	 */
+	private static function scan_wp2shell_traces() {
+		global $wpdb;
+
+		$findings = [];
+
+		if ( class_exists( 'MCM_User_Audit' ) ) {
+			foreach ( MCM_User_Audit::get_wp2shell_users() as $match ) {
+				$user  = $match['user'];
+				$roles = MCM_User_Audit::role_labels( $user );
+
+				$findings[] = [
+					'type'     => 'wp2shell_user',
+					'reason'   => 'Aanvallersaccount (wp2shell): ' . $match['reason'],
+					'severity' => 'high',
+					'path'     => 'db:users#' . $user->ID,
+					'relpath'  => sprintf( 'Gebruiker %s <%s>, rol: %s', $user->user_login, $user->user_email, '' !== $roles ? $roles : 'geen' ),
+					'is_dir'   => false,
+					'size'     => 0,
+					'mtime'    => self::gmt_to_timestamp( $user->user_registered ),
+				];
+			}
+		}
+
+		$fake_date = '2020-01-01 00:00:00';
+		$invalid   = '%' . $wpdb->esc_like( 'example.invalid' ) . '%';
+		$wp2shell  = '%' . $wpdb->esc_like( 'wp2shell' ) . '%';
+
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT p.ID, p.post_type, p.post_status, p.post_modified_gmt,
+			        LENGTH( p.post_content ) AS len,
+			        ( p.post_date = %s ) AS fake_date,
+			        ( p.post_content LIKE %s OR p.post_content LIKE %s ) AS marker,
+			        ( u.ID IS NULL ) AS no_author
+			   FROM {$wpdb->posts} p
+			   LEFT JOIN {$wpdb->users} u ON u.ID = p.post_author
+			  WHERE ( p.post_type = 'request' AND p.post_status = 'parse' )
+			     OR ( p.post_type = 'customize_changeset' AND (
+			             p.post_date = %s
+			          OR p.post_content LIKE %s
+			          OR p.post_content LIKE %s
+			          OR ( u.ID IS NULL AND p.post_status = 'publish' )
+			        ) )
+			  ORDER BY p.ID",
+			$fake_date, $invalid, $wp2shell,
+			$fake_date, $invalid, $wp2shell
+		) );
+
+		foreach ( (array) $rows as $row ) {
+			if ( 'request' === $row->post_type ) {
+				$reason = 'Restant van de wp2shell-aanval: post van type "request" met status "parse"';
+			} else {
+				$signs = [];
+				if ( $row->fake_date ) {
+					$signs[] = 'datum 2020-01-01';
+				}
+				if ( $row->marker ) {
+					$signs[] = 'menu-item naar example.invalid of wp2shell';
+				}
+				if ( $row->no_author ) {
+					$signs[] = 'auteur bestaat niet';
+				}
+				$reason = 'Restant van de wp2shell-aanval: customizer-changeset (' . implode( ', ', $signs ) . ')';
+			}
+
+			$findings[] = [
+				'type'     => 'exploit_remnant',
+				'reason'   => $reason,
+				'severity' => 'high',
+				'path'     => 'db:posts#' . $row->ID,
+				'relpath'  => sprintf( 'Database: post #%d (%s, status %s)', $row->ID, $row->post_type, $row->post_status ),
+				'is_dir'   => false,
+				'size'     => (int) $row->len,
+				'mtime'    => self::gmt_to_timestamp( $row->post_modified_gmt ),
+			];
+		}
+
+		return $findings;
+	}
+
+	/**
+	 * Een datum zoals WordPress hem in UTC opslaat ('2026-07-19 13:33:36')
+	 * als timestamp. 0 bij een lege of nul-datum.
+	 */
+	private static function gmt_to_timestamp( $gmt ) {
+		$ts = strtotime( $gmt . ' UTC' );
+		return $ts > 0 ? $ts : 0;
+	}
+
+	/**
+	 * Staat deze bevinding in de database in plaats van op schijf?
+	 */
+	public static function is_db_finding( array $f ) {
+		return isset( $f['type'] ) && in_array( $f['type'], [ 'new_php_snippet', 'wp2shell_user', 'exploit_remnant' ], true );
+	}
+
+	/**
+	 * Is dit een spoor van de wp2shell-aanval?
+	 */
+	public static function is_wp2shell_finding( array $f ) {
+		return isset( $f['type'] ) && in_array( $f['type'], [ 'wp2shell_user', 'exploit_remnant' ], true );
 	}
 
 	/**
@@ -561,25 +704,53 @@ class MCM_Anomaly_Scanner {
 		if ( ! class_exists( 'MCM_Notifier' ) ) {
 			return;
 		}
-		$count   = count( $findings );
-		$subject = sprintf( 'Vreemde bestanden/mappen gevonden (%d)', $count );
+		$count  = count( $findings );
+		$attack = count( array_filter( $findings, [ __CLASS__, 'is_wp2shell_finding' ] ) );
 
-		$body  = "Op deze site staan één of meer bestanden/mappen die niet bij een\n";
-		$body .= "standaard WordPress-installatie horen. Dit kan onschuldig zijn,\n";
-		$body .= "maar bij een hack worden vaak juist zulke vreemde items neergezet.\n\n";
+		$body = '';
+		if ( $attack ) {
+			$subject = sprintf( 'WAARSCHUWING: sporen van de wp2shell-aanval (%d)', $attack );
+
+			$body .= "!! Deze site draagt sporen van wp2shell: een lek in WordPress zelf\n";
+			$body .= "!! (CVE-2026-63030 + CVE-2026-60137, in 6.9.0–6.9.4 en 7.0.0–7.0.1)\n";
+			$body .= "!! dat sinds juli 2026 massaal wordt misbruikt om beheerders aan te\n";
+			$body .= "!! maken. Ga ervan uit dat de site is binnengedrongen.\n";
+			$body .= sprintf( "!! WordPress-versie nu: %s\n\n", get_bloginfo( 'version' ) );
+		} else {
+			$subject = sprintf( 'Vreemde bestanden/mappen gevonden (%d)', $count );
+		}
+
+		if ( $count > $attack ) {
+			$body .= "Op deze site staan één of meer bestanden/mappen die niet bij een\n";
+			$body .= "standaard WordPress-installatie horen. Dit kan onschuldig zijn,\n";
+			$body .= "maar bij een hack worden vaak juist zulke vreemde items neergezet.\n\n";
+		}
 
 		foreach ( $findings as $i => $f ) {
+			$is_db = self::is_db_finding( $f );
+
 			$body .= sprintf( "%d. [%s] %s\n", $i + 1, strtoupper( $f['severity'] ), $f['reason'] );
-			$body .= sprintf( "   Pad:           %s\n", $f['relpath'] );
-			$body .= sprintf( "   Type:          %s\n", $f['is_dir'] ? 'map' : 'bestand' );
-			if ( ! $f['is_dir'] ) {
+			$body .= sprintf( "   %-15s%s\n", $is_db ? 'Waar:' : 'Pad:', $f['relpath'] );
+			$body .= sprintf( "   Type:          %s\n", $is_db ? 'database' : ( $f['is_dir'] ? 'map' : 'bestand' ) );
+			if ( ! $f['is_dir'] && ! $is_db ) {
 				$body .= sprintf( "   Grootte:       %s bytes\n", number_format( $f['size'], 0, ',', '.' ) );
 			}
-			$body .= sprintf( "   Laatst gewijz: %s\n", $f['mtime'] ? wp_date( 'Y-m-d H:i', $f['mtime'] ) : '?' );
+			$body .= sprintf( "   %-15s%s\n", $is_db ? 'Datum:' : 'Laatst gewijz:', $f['mtime'] ? wp_date( 'Y-m-d H:i', $f['mtime'] ) : '?' );
 			$body .= "\n";
 		}
 
 		$body .= "----\n";
+		if ( $attack ) {
+			$body .= "ACTIE bij wp2shell:\n";
+			$body .= "1. Controleer dat WordPress minstens 6.9.5 of 7.0.2 is (lek dicht).\n";
+			$body .= "2. Zet aanvallersaccounts naar Abonnee (Tools → MCM Security → User\n";
+			$body .= "   Audit) en verwijder ze pas na onderzoek, met een backup vooraf.\n";
+			$body .= "3. Zoek verder buiten WordPress om: gebruikers via SQL, sessies,\n";
+			$body .= "   applicatiewachtwoorden, scripts in opties en widgets, cron-taken,\n";
+			$body .= "   plugins en thema's vergelijken met een schone kopie.\n";
+			$body .= "4. Vernieuw daarna wachtwoorden en salts: via het lek zijn de\n";
+			$body .= "   wachtwoord-hashes uit de database te lezen.\n\n";
+		}
 		$body .= "ACTIE: controleer elk item. Herken je het niet, ga er dan van uit\n";
 		$body .= "dat het verdacht is en onderzoek de inhoud vóór je iets verwijdert.\n";
 		$body .= "De plugin verwijdert NIETS automatisch.\n";

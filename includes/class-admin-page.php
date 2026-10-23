@@ -674,6 +674,26 @@ class MCM_Admin_Page {
 						Geplande scans: <?php echo $scans_late ? 'lopen achter' : 'op schema'; ?>
 					</a>
 				<?php endif; ?>
+				<?php
+				// wp2shell-sporen: accounts live geteld, restanten uit de laatste
+				// scan. Bovenaan, want de secties hieronder kunnen ingeklapt zijn.
+				$wp2shell_count = count( MCM_User_Audit::get_wp2shell_users() );
+				$a_saved        = MCM_Anomaly_Scanner::get_last_results();
+				$a_saved        = $a_saved ? (array) $a_saved['findings'] : [];
+				if ( class_exists( 'MCM_Finding_Ignore' ) ) {
+					$a_saved = MCM_Finding_Ignore::filter( 'anomaly', $a_saved );
+				}
+				foreach ( $a_saved as $f ) {
+					if ( isset( $f['type'] ) && 'exploit_remnant' === $f['type'] ) {
+						$wp2shell_count++;
+					}
+				}
+				if ( $wp2shell_count ) :
+					?>
+					<span class="mcm-badge mcm-badge-inactive">
+						&#9888; wp2shell-sporen: <?php echo (int) $wp2shell_count; ?> &mdash; zie &ldquo;Risico op gebruikersnamen&rdquo; en &ldquo;Vreemde bestanden &amp; mappen&rdquo;
+					</span>
+				<?php endif; ?>
 			</div>
 
 			<form method="post">
@@ -938,6 +958,9 @@ class MCM_Admin_Page {
 						Wekelijkse scan van de webroot en <code>wp-content</code> (alleen het bovenste niveau) op bestanden en mappen die niet bij een standaard WordPress horen. Een onbekend los <code>.php</code>-bestand in de root of in wp-content is het klassieke signaal van een gedropte shell.
 					</p>
 					<p class="description">
+						Dezelfde scan zoekt in de database naar sporen van de <strong>wp2shell-aanval</strong> (lek in WordPress zelf, sinds juli 2026): aanvallersaccounts met welke rol dan ook, en de restanten die de exploit achterlaat (een post van type <code>request</code> met status <code>parse</code> en een customizer-changeset met datum 2020-01-01). Zulke sporen zijn altijd HIGH; de mail heeft dan een eigen onderwerp.
+					</p>
+					<p class="description">
 						<strong>Severity</strong>: <span style="color:#b32d2e;">HIGH</span> = onbekend PHP-bestand (verdacht), <span style="color:#bd8600;">MEDIUM</span> = onbekende map in de root, <span style="color:#646970;">LOW</span> = onbekende map in wp-content of onbekend niet-uitvoerbaar bestand. Alleen HIGH/MEDIUM sturen een mail; LOW staat hieronder ter info.
 					</p>
 					<p class="description">
@@ -991,7 +1014,7 @@ class MCM_Admin_Page {
 									<td><strong style="color:<?php echo esc_attr( $col ); ?>;"><?php echo esc_html( strtoupper( $f['severity'] ) ); ?></strong></td>
 									<td><?php echo esc_html( $f['reason'] ); ?></td>
 									<td><code><?php echo esc_html( $f['relpath'] ); ?></code></td>
-									<td><?php echo ! empty( $f['is_dir'] ) ? 'map' : 'bestand'; ?></td>
+									<td><?php echo MCM_Anomaly_Scanner::is_db_finding( $f ) ? 'database' : ( ! empty( $f['is_dir'] ) ? 'map' : 'bestand' ); ?></td>
 									<td><?php echo $f['mtime'] ? esc_html( wp_date( 'd-m-Y', (int) $f['mtime'] ) ) : '—'; ?></td>
 									<td><?php $this->render_ignore_form( 'anomaly', $f ); ?></td>
 								</tr>
@@ -1635,6 +1658,11 @@ class MCM_Admin_Page {
 				die staat dan onder elke post en reactie.
 			</p>
 			<p class="description">
+				Accounts die passen bij de <strong>wp2shell-aanval</strong> (gebruikersnaam <code>wp2_&hellip;</code>,
+				<code>w2s_&hellip;</code> of <code>wpenginebot</code>, e-mail op <code>@wp2shell.invalid</code>,
+				<code>@wp2shell.shellcode.lol</code> of <code>@wpengine.com</code>) staan bovenaan als HIGH, met welke rol ze nu ook hebben.
+			</p>
+			<p class="description">
 				MCM-eigenaars en super-admins blijven buiten deze lijst.
 				<strong>Hernoemen doet de plugin niet</strong>: WordPress heeft daar geen API voor en een directe
 				database-update op <code>user_login</code> is te riskant. Voor een risico-login is de route:
@@ -1710,13 +1738,22 @@ class MCM_Admin_Page {
 								</td>
 								<td>
 									<?php
-									$fixable = false;
+									$fixable  = false;
+									$wp2shell = false;
 									foreach ( $issues as $issue ) {
 										if ( ! empty( $issue['fixable'] ) && 'display_login' === $issue['code'] ) {
 											$fixable = true;
 										}
+										if ( 'wp2shell' === $issue['code'] ) {
+											$wp2shell = true;
+										}
 									}
-									if ( $fixable && current_user_can( 'edit_users' ) ) :
+									// Een aanvallersaccount netjes maken heeft geen zin.
+									if ( $wp2shell ) :
+										?>
+										<strong style="color:#b32d2e;">onderzoeken, dan verwijderen</strong>
+										<?php
+									elseif ( $fixable && current_user_can( 'edit_users' ) ) :
 										$suggestion = MCM_User_Audit::suggest_display_name( $user );
 										$fix_url    = wp_nonce_url(
 											add_query_arg(

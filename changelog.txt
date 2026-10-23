@@ -1,5 +1,51 @@
 MCM Security Hardener — Changelog
 
+= 1.34.0 (2026-10-23) =
+* Nieuw: sporen van de wp2shell-aanval herkennen en melden
+  (class-user-audit.php, class-anomaly-scanner.php,
+  class-new-admin-alert.php, class-admin-page.php)
+  - Aanleiding: op een MCM-site zonder deze plugin maakten aanvallers op
+    19 juli 2026 drie beheerders aan via wp2shell, een lek in WordPress
+    zelf (CVE-2026-63030 + CVE-2026-60137, in 6.9.0–6.9.4 en
+    7.0.0–7.0.1). Dat bleef drie maanden onopgemerkt. Een tweede site
+    bleek tussen 19 juli en 6 sep twaalf keer aangevallen.
+  - Kenmerken van een aanvallersaccount: gebruikersnaam begint met wp2_
+    of w2s_, of is wpenginebot; of het e-mailadres eindigt op
+    @wp2shell.invalid, @wp2shell.shellcode.lol of @wpengine.com (geen
+    MCM-site staat bij WP Engine). Eén kenmerk is genoeg.
+  - User Audit ("Risico op gebruikersnamen"): zulke accounts staan
+    bovenaan als HIGH, met welke rol ze ook hebben. Na ontdekking worden
+    ze vaak naar Abonnee gezet, en dan vielen ze hier buiten. Gelezen
+    rechtstreeks uit de users-tabel, niet via get_users(), zodat een
+    achterdeur-plugin ze niet kan verbergen. Geen knop "Weergavenaam
+    losmaken" bij zo'n account.
+  - Anomaly Scanner (wekelijks + "Nu scannen"): zoekt in de database naar
+    dezelfde accounts en naar de restanten die de exploit achterlaat: een
+    post van type 'request' met status 'parse', en een
+    customize_changeset met datum 2020-01-01 00:00:00, 'example.invalid'
+    of 'wp2shell' in de inhoud, of (alleen bij status publish) een auteur
+    die niet bestaat. Meerdere kenmerken, omdat het voorstel (auteur
+    bestaat niet of example.invalid) op de tweede site 5 van de 12
+    changesets miste: daar bestond de auteur wel en stond er
+    wp2shell.com in. Elke bevinding is HIGH; de mail krijgt dan het
+    onderwerp "WAARSCHUWING: sporen van de wp2shell-aanval (n)" met
+    uitleg en stappen. Geen baseline: zolang de sporen er staan, staan ze
+    in de tabel (de mail gaat één keer per set, zoals altijd).
+    "Markeer als veilig" werkt ook voor deze bevindingen.
+  - Gemeten op 23 okt 2026 (alleen lezen, plugins uit): de aangevallen
+    sites gaven 3 accounts + 6 restanten en 24 restanten, precies de
+    bekende; elf andere MCM-sites gaven niets.
+  - New Admin Alert: past een nieuwe beheerder bij de kenmerken, dan
+    begint de mail met een waarschuwing, de WordPress-versie en vier
+    stappen, en staat "WAARSCHUWING wp2shell-aanval" in het onderwerp.
+  - Adminpagina: rode badge bovenaan zolang er wp2shell-sporen zijn (de
+    secties eronder kunnen ingeklapt zijn). In de anomalietabel staat bij
+    database-bevindingen nu "database" in plaats van "bestand", ook voor
+    WPCode-snippets.
+  - Alleen melden: de plugin verwijdert geen accounts of restanten.
+  - Geen migratie, geen nieuwe instellingen: de database-controle draait
+    mee met de aan/uit-schakelaar van de Anomaly Scanner.
+
 = 1.33.1 (2026-10-07) =
 * Fix: "Reset link versturen" in wp-admin faalde altijd met "Aanvraag
   mislukt — de menselijke verificatie was nog niet voltooid"

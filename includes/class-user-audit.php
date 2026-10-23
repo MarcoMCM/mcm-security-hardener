@@ -29,6 +29,12 @@ class MCM_User_Audit {
 
 	const ELEVATED_ROLES = [ 'administrator', 'editor', 'author', 'contributor' ];
 
+	// Kenmerken van de accounts die de wp2shell-aanval aanmaakt (lowercase).
+	// Zie wp2shell_match().
+	const WP2SHELL_LOGIN_PREFIXES = [ 'wp2_', 'w2s_' ];
+	const WP2SHELL_LOGINS         = [ 'wpenginebot' ];
+	const WP2SHELL_EMAIL_DOMAINS  = [ 'wp2shell.invalid', 'wp2shell.shellcode.lol', 'wpengine.com' ];
+
 	public function __construct() {
 		add_action( 'admin_post_' . self::ACTION_DOWNGRADE, [ $this, 'handle_downgrade' ] );
 		add_action( 'admin_post_' . self::ACTION_FIX_DISPLAY, [ $this, 'handle_fix_display_name' ] );
@@ -97,9 +103,119 @@ class MCM_User_Audit {
 	}
 
 	/**
+	 * Past een account bij de wp2shell-aanval?
+	 *
+	 * Aanleiding: op een MCM-site maakten aanvallers op 19 juli 2026 drie
+	 * beheerders aan via wp2shell, een lek in WordPress zelf (CVE-2026-63030
+	 * + CVE-2026-60137, in WordPress 6.9.0–6.9.4 en 7.0.0–7.0.1): wp2_3ab049
+	 * en wp2_66a992 (@wp2shell.invalid) en wpenginebot (@wpengine.com,
+	 * terwijl de site niet bij WP Engine staat). Dat bleef drie maanden
+	 * onopgemerkt.
+	 *
+	 * Bewust ongeacht de rol: na ontdekking worden zulke accounts vaak naar
+	 * Abonnee gezet in plaats van verwijderd, en dan vallen ze buiten elke
+	 * controle die alleen naar beheerders kijkt.
+	 *
+	 * Grens: @wpengine.com is alleen verdacht als de site niet bij WP Engine
+	 * staat. Geen enkele MCM-site staat daar.
+	 *
+	 * @param string $login
+	 * @param string $email
+	 * @return string Waarom het account verdacht is, of '' als het niet past.
+	 */
+	public static function wp2shell_match( $login, $email ) {
+		$login   = strtolower( (string) $login );
+		$email   = strtolower( (string) $email );
+		$reasons = [];
+
+		foreach ( self::WP2SHELL_LOGIN_PREFIXES as $prefix ) {
+			if ( 0 === strpos( $login, $prefix ) ) {
+				$reasons[] = sprintf( 'gebruikersnaam begint met "%s"', $prefix );
+			}
+		}
+		if ( in_array( $login, self::WP2SHELL_LOGINS, true ) ) {
+			$reasons[] = sprintf( 'gebruikersnaam "%s"', $login );
+		}
+
+		$at = strrpos( $email, '@' );
+		if ( false !== $at && in_array( substr( $email, $at + 1 ), self::WP2SHELL_EMAIL_DOMAINS, true ) ) {
+			$reasons[] = sprintf( 'e-mailadres op @%s', substr( $email, $at + 1 ) );
+		}
+
+		return implode( ' en ', $reasons );
+	}
+
+	/**
+	 * Alle accounts die bij de wp2shell-aanval passen, met welke rol dan ook.
+	 *
+	 * Rechtstreeks uit de users-tabel, niet via get_users(): een
+	 * achterdeur-plugin kan WP_User_Query filteren (pre_user_query) en zo zijn
+	 * eigen account verbergen.
+	 *
+	 * @return array<int,array{user:WP_User,reason:string}> Op user-ID.
+	 */
+	public static function get_wp2shell_users() {
+		global $wpdb;
+
+		$where = [];
+		$args  = [];
+		foreach ( self::WP2SHELL_LOGIN_PREFIXES as $prefix ) {
+			$where[] = 'user_login LIKE %s';
+			$args[]  = $wpdb->esc_like( $prefix ) . '%';
+		}
+		foreach ( self::WP2SHELL_LOGINS as $login ) {
+			$where[] = 'user_login = %s';
+			$args[]  = $login;
+		}
+		foreach ( self::WP2SHELL_EMAIL_DOMAINS as $domain ) {
+			$where[] = 'user_email LIKE %s';
+			$args[]  = '%@' . $wpdb->esc_like( $domain );
+		}
+
+		$ids = $wpdb->get_col( $wpdb->prepare(
+			"SELECT ID FROM {$wpdb->users} WHERE " . implode( ' OR ', $where ) . ' ORDER BY ID',
+			$args
+		) );
+
+		$out = [];
+		foreach ( (array) $ids as $id ) {
+			$user = get_user_by( 'id', (int) $id );
+			if ( ! $user ) {
+				continue;
+			}
+			// De SQL is ruim; wp2shell_match() beslist en levert de reden.
+			$reason = self::wp2shell_match( $user->user_login, $user->user_email );
+			if ( '' === $reason ) {
+				continue;
+			}
+			$out[ (int) $user->ID ] = [
+				'user'   => $user,
+				'reason' => $reason,
+			];
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Bevinding voor een wp2shell-account, in het formaat van get_risky_users().
+	 */
+	private static function wp2shell_issue( $reason ) {
+		return [
+			'code'     => 'wp2shell',
+			'severity' => 'high',
+			'label'    => sprintf( 'Aanvallersaccount (wp2shell): %s', $reason ),
+			'advice'   => 'Dit account past bij de wp2shell-aanval op WordPress zelf (sinds juli 2026), welke rol het nu ook heeft. Ga ervan uit dat de site is binnengedrongen: controleer dat WordPress minstens 6.9.5 of 7.0.2 is, kijk bij "Vreemde bestanden & mappen" naar andere sporen en verwijder het account pas na onderzoek, met een backup vooraf. Vernieuw daarna wachtwoorden en salts. De plugin verwijdert niets.',
+			'fixable'  => false,
+		];
+	}
+
+	/**
 	 * Gebruikers met een risico op hun naam of weergavenaam.
 	 *
-	 * Drie soorten bevindingen:
+	 * Vier soorten bevindingen:
+	 *   - wp2shell      : account past bij de wp2shell-aanval (altijd HIGH,
+	 *                     ongeacht de rol — zie wp2shell_match())
 	 *   - risky_login   : voorspelbare gebruikersnaam ('admin' & co)
 	 *   - display_login : weergavenaam is gelijk aan de login, waardoor de
 	 *                     login onder elke post/reactie publiek staat
@@ -111,6 +227,9 @@ class MCM_User_Audit {
 	 * eigen veiligheidsslot en CSV-backup. Deze plugin doet security, niet het
 	 * beheren of opruimen van klantenbestanden.
 	 *
+	 * Uitzondering: wp2shell-accounts staan er met elke rol in, en bovenaan.
+	 * Dat is geen klantenbeheer maar een inbraakspoor.
+	 *
 	 * Klantaccounts met een gereserveerde naam ('admin' & co) worden wél
 	 * geteld — zie get_reserved_login_accounts() — maar als doorverwijzing,
 	 * niet als iets om hier op te lossen.
@@ -120,11 +239,17 @@ class MCM_User_Audit {
 	public static function get_risky_users() {
 		// get_elevated_users() sluit MCM-eigenaars en super-admins al uit.
 		$risky_names = self::risky_login_names();
+		$wp2shell    = self::get_wp2shell_users();
+		$attack      = []; // wp2shell-accounts, komen bovenaan
 		$out         = [];
 
 		foreach ( self::get_elevated_users() as $user ) {
 			$issues   = [];
 			$is_admin = in_array( 'administrator', (array) $user->roles, true );
+
+			if ( isset( $wp2shell[ $user->ID ] ) ) {
+				$issues[] = self::wp2shell_issue( $wp2shell[ $user->ID ]['reason'] );
+			}
 
 			if ( in_array( strtolower( $user->user_login ), $risky_names, true ) ) {
 				$issues[] = [
@@ -157,7 +282,13 @@ class MCM_User_Audit {
 				];
 			}
 
-			if ( $issues ) {
+			if ( isset( $wp2shell[ $user->ID ] ) ) {
+				$attack[] = [
+					'user'   => $user,
+					'issues' => $issues,
+				];
+				unset( $wp2shell[ $user->ID ] );
+			} elseif ( $issues ) {
 				$out[] = [
 					'user'   => $user,
 					'issues' => $issues,
@@ -165,7 +296,17 @@ class MCM_User_Audit {
 			}
 		}
 
-		return $out;
+		// De overige wp2shell-accounts hebben geen verhoogde rol (meestal al
+		// naar Abonnee gezet). Alleen de wp2shell-bevinding: de rest van de
+		// checks gaat over accounts die je wilt houden.
+		foreach ( $wp2shell as $match ) {
+			$attack[] = [
+				'user'   => $match['user'],
+				'issues' => [ self::wp2shell_issue( $match['reason'] ) ],
+			];
+		}
+
+		return array_merge( $attack, $out );
 	}
 
 	/**
