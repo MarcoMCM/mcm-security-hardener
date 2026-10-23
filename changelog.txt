@@ -1,5 +1,35 @@
 MCM Security Hardener — Changelog
 
+= 1.35.0 (2026-10-23) =
+* Nieuw: alarm bij een Avada-/Avada Builder-versie met een bekend, ernstig
+  lek (class-vulnerable-versions.php, class-admin-page.php)
+  - Aanleiding: een MCM-site buiten MainWP draaide in oktober 2026 nog
+    Avada 7.15.1 / Builder 3.15.1. Via CVE-2026-18431 (onbevoegd bestanden
+    schrijven en code uitvoeren, Avada ≤ 7.16 + Builder ≤ 3.16, CVSS 9,8,
+    gepubliceerd 25 aug 2026) stond er in vijftien seconden een achterdeur,
+    zonder inlog. Daarna Japanse SEO-spam met cloaking. Avada-updates komen
+    niet via WordPress.org, dus WordPress waarschuwt hier zelf niet voor.
+  - Vaste lijst bekende lekken in de plugin (geen externe dienst), uit te
+    breiden met het filter 'mcm_security_known_vulnerabilities'. Nu:
+    Builder < 3.16.1 en Avada < 7.16.1. Het thema telt alleen als de
+    Builder actief is (het lek vraagt beide). Een niet-actieve Builder
+    telt wel, met "(niet actief)": de bestanden staan er dan nog.
+  - Controle: dagelijks via wp-cron en direct na elke plugin-/thema-update
+    (upgrader_process_complete), zodat de melding verdwijnt zodra de
+    update erop staat.
+  - Mail "KRITIEK LEK: Avada bijwerken (CVE-…)" bij een nieuwe set; staat
+    dezelfde set na 7 dagen nog open, dan een herinnering. Rode melding op
+    elke wp-adminpagina, alleen voor MCM-eigenaars. Sectie "Bekende lekken
+    in Avada" met tabel en knop "Nu controleren", badge bovenaan.
+  - Geen schakelaar (een bekend kritiek lek wil je altijd zien) en ook
+    actief op staging: een kwetsbare testsite onder dezelfde
+    servergebruiker geeft toegang tot de live-site.
+  - Getest op Local (Avada 7.15.2: 18/18; 7.16.2: 5/5, in een
+    teruggedraaide DB-transactie, mail onderschept) en alleen-lezen op
+    drie live sites: één testsite met Builder 3.15.4 gemeld, twee sites op
+    3.16.3 niet.
+
+
 = 1.34.0 (2026-10-23) =
 * Nieuw: sporen van de wp2shell-aanval herkennen en melden
   (class-user-audit.php, class-anomaly-scanner.php,

@@ -694,6 +694,15 @@ class MCM_Admin_Page {
 						&#9888; wp2shell-sporen: <?php echo (int) $wp2shell_count; ?> &mdash; zie &ldquo;Risico op gebruikersnamen&rdquo; en &ldquo;Vreemde bestanden &amp; mappen&rdquo;
 					</span>
 				<?php endif; ?>
+				<?php
+				// Bekend kritiek lek in de geïnstalleerde Avada-versie: live berekend.
+				$vulnerable = MCM_Vulnerable_Versions::scan();
+				if ( $vulnerable ) :
+					?>
+					<a href="#mcm-vulnerable-versions" class="mcm-badge mcm-badge-inactive" style="text-decoration:none;">
+						&#9888; Kritiek lek: <?php echo esc_html( $vulnerable[0]['name'] . ' ' . $vulnerable[0]['installed'] ); ?> &mdash; bijwerken
+					</a>
+				<?php endif; ?>
 			</div>
 
 			<form method="post">
@@ -1038,6 +1047,62 @@ class MCM_Admin_Page {
 						<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . MCM_Anomaly_Scanner::ACTION_MANUAL_SCAN ), MCM_Anomaly_Scanner::ACTION_MANUAL_SCAN ) ); ?>"
 							class="button button-secondary">
 							Nu scannen
+						</a>
+					</p>
+				</div>
+
+				<!-- VULNERABLE VERSIONS -->
+				<div class="mcm-section" id="mcm-vulnerable-versions">
+					<h2>Bekende lekken in Avada</h2>
+					<p class="description">
+						Vergelijkt dagelijks, en direct na elke update, de geïnstalleerde versie van Avada en Avada Builder met een vaste lijst bekende, ernstige lekken (lekken waarmee een aanvaller zonder inloggen code op de site kan zetten). Avada-updates komen niet via WordPress.org, dus WordPress zelf waarschuwt hier niet voor. Bij een treffer: mail, en een rode melding op elke adminpagina (alleen voor MCM). Staat het lek na 7 dagen nog open, dan volgt een herinnering.
+					</p>
+					<p class="description">
+						<strong>Werkt niets zelf bij</strong> &mdash; alleen melden. Bijwerken via Avada of MainWP.
+					</p>
+					<?php
+					$v_now  = MCM_Vulnerable_Versions::scan();
+					$v_last = MCM_Vulnerable_Versions::get_last_results();
+					$v_when = ( $v_last && ! empty( $v_last['timestamp'] ) ) ? wp_date( 'd-m-Y H:i', (int) $v_last['timestamp'] ) : '—';
+					?>
+					<p>
+						<strong>Laatste controle met mail:</strong> <?php echo esc_html( $v_when ); ?>
+						&mdash;
+						<?php if ( empty( $v_now ) ) : ?>
+							<span style="color:#1e7e34;">&#10003; Geen bekend lek in de geïnstalleerde versies.</span>
+						<?php else : ?>
+							<span style="color:#b32d2e;">&#9888; <?php echo (int) count( $v_now ); ?> bekend(e) lek(ken)</span>
+						<?php endif; ?>
+					</p>
+					<?php if ( ! empty( $v_now ) ) : ?>
+					<table class="widefat striped" style="margin-top:8px;">
+						<thead>
+							<tr>
+								<th>Onderdeel</th>
+								<th style="width:110px;">Geïnstalleerd</th>
+								<th style="width:110px;">Opgelost in</th>
+								<th>Lek</th>
+							</tr>
+						</thead>
+						<tbody>
+							<?php foreach ( $v_now as $f ) : ?>
+							<tr>
+								<td><strong style="color:#b32d2e;"><?php echo esc_html( $f['name'] ); ?></strong><?php echo $f['active'] ? '' : ' <em>(niet actief)</em>'; ?></td>
+								<td><code><?php echo esc_html( $f['installed'] ); ?></code></td>
+								<td><code><?php echo esc_html( $f['fixed_in'] ); ?></code></td>
+								<td>
+									<a href="<?php echo esc_url( $f['url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $f['id'] ); ?></a>
+									(<?php echo esc_html( $f['published'] ); ?>) &mdash; <?php echo esc_html( $f['summary'] ); ?>
+								</td>
+							</tr>
+							<?php endforeach; ?>
+						</tbody>
+					</table>
+					<?php endif; ?>
+					<p>
+						<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . MCM_Vulnerable_Versions::ACTION_MANUAL_CHECK ), MCM_Vulnerable_Versions::ACTION_MANUAL_CHECK ) ); ?>"
+							class="button button-secondary">
+							Nu controleren
 						</a>
 					</p>
 				</div>
@@ -2811,6 +2876,7 @@ class MCM_Admin_Page {
 			'audit_display_failed' => [ 'error', 'Weergavenaam kon niet worden aangepast.' ],
 			'exposure_scan_done' => [ 'success', 'File-exposure scan is uitgevoerd. Zie de "Blootgestelde bestanden"-sectie voor het resultaat.' ],
 			'anomaly_scan_done' => [ 'success', 'Anomalie-scan is uitgevoerd. Zie de "Vreemde bestanden &amp; mappen"-sectie voor het resultaat.' ],
+			'vulnerable_versions_check_done' => [ 'success', 'Controle op bekende lekken is uitgevoerd. Zie de sectie "Bekende lekken in Avada".' ],
 			'anomaly_enabled' => [ 'success', 'Anomalie-scan staat nu AAN.' ],
 			'anomaly_disabled' => [ 'warning', 'Anomalie-scan staat nu UIT. Vergeet niet \'m na je werk weer aan te zetten (rode knop in de toolbar).' ],
 		];

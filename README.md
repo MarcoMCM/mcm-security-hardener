@@ -35,6 +35,7 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 | **New Admin Alert** | Real-time mail zodra een account de rol Administrator krijgt (hook `set_user_role`) — ongeacht of dat via het registratieformulier, wp-admin, wp-cli of een script gaat dat WordPress' eigen user-API gebruikt. MCM-eigenaars uitgezonderd. Past het account bij de wp2shell-aanval (`wp2_…`, `w2s_…`, `wpenginebot`, `@wp2shell.*`, `@wpengine.com`), dan begint de mail met een waarschuwing en stappen (sinds 1.34.0). Vangt geen rechtstreekse database-writes buiten die API om |
 | **Snippet Monitor** | Real-time mail bij elke nieuwe of gewijzigde WPCode/Insert Headers and Footers-snippet (hook `save_post_wpcode`), ongeacht publish/draft-status — code-snippets zijn onzichtbaar voor bestandsscans, want ze staan in de database. MCM-eigenaars uitgezonderd. No-op zonder die plugin |
 | **Core Integrity Scanner** | Wekelijkse checksum-vergelijking van élk WordPress-kernbestand (root, `wp-admin/`, `wp-includes/`) tegen de officiële versie van WordPress.org — zelfde principe als `wp core verify-checksums`, automatisch. Elke afwijking of ontbrekend bestand is HIGH, direct gemaild. Detectie-only; de mail bevat het herstel-commando |
+| **Bekende lekken in Avada** | Sinds 1.35.0. Vergelijkt dagelijks, en direct na elke plugin-/thema-update, de geïnstalleerde versie van Avada en Avada Builder met een vaste lijst bekende lekken waarmee een aanvaller zonder inloggen code op de site kan zetten (nu CVE-2026-18431: Builder < 3.16.1, Avada < 7.16.1). Avada-updates komen niet via WordPress.org, dus WordPress waarschuwt hier zelf niet voor. Mail bij een treffer, herinnering na 7 dagen, rode melding op elke adminpagina (alleen MCM). Geen schakelaar, ook op staging actief. Detectie-only |
 | **PHP Error Watcher** | Uurlijkse monitor van `debug.log`; mailt direct bij fatal/parse. Warning/deprecated tellen alleen mee voor de drempel als ze uit eigen code komen (core/systeem = ruis, alarmeert niet). Extra gevoelig 7 dagen na een PHP-versie-wissel |
 | **Scan-watchdog** | Legt per scan de laatste automatische run vast en kijkt bij gewone bezoeken (niet via cron) of die niet ouder is dan 2× het interval. Zo ja, en na een half uur nog steeds: admin-notice, max 1 mail per dag en een rode regel in het dashboard. "Nu scannen" telt niet mee. Aanleiding: parre-deden.nl, sep 2026 (cron 9 dagen stil, niemand merkte het) |
 | **wp-config-controle** | Eenmalige melding bij `AUTOMATIC_UPDATER_DISABLED`, `WP_AUTO_UPDATE_CORE=false`, `DISALLOW_FILE_MODS`, `WP_HTTP_BLOCK_EXTERNAL`, `SAVEQUERIES`/`SCRIPT_DEBUG` op productie en constanten die dubbel in wp-config.php staan. Knop "Klopt, dit is bewust"; een andere waarde geeft een nieuwe melding |
@@ -115,6 +116,7 @@ define( 'MCM_SECURITY_DISABLE_CONFIG_CHECK', true );
 | `mcm_user_delete_guard_enabled` | User Delete Guard per gebruiker uitschakelen (`$enabled, $user_id`) |
 | `mcm_anomaly_root_whitelist` | Bekende root-items voor de anomalie-scan (lowercase namen) |
 | `mcm_anomaly_wpcontent_whitelist` | Bekende `wp-content`-items voor de anomalie-scan |
+| `mcm_security_known_vulnerabilities` | Lijst bekende lekken voor de controle "Bekende lekken in Avada" (regels toevoegen of weghalen) |
 | `mcm_exposure_archive_regex` | Welke extensies gelden als archief/dump in de uploads-, back-upmappen- en boven-webroot-scan |
 | `mcm_exposure_uploads_skip_dirs` | Mapnamen die de uploads-scan overslaat (default: `woocommerce_uploads` + cache-mappen) |
 | `mcm_exposure_backup_dirs` | Bekende back-upmappen in wp-content (`mapnaam => plugin`); daarnaast telt elke map daar met "backup" in de naam |
@@ -162,6 +164,7 @@ mcm-security-hardener/
 │   ├── class-anomaly-scanner.php      Scan op vreemde bestanden/mappen (whitelist + plugin-/snippet-baseline-diff)
 │   ├── class-snippet-monitor.php      Real-time mail bij nieuwe/gewijzigde WPCode-snippet
 │   ├── class-core-integrity-scanner.php  Checksum-vergelijking kernbestanden vs. WordPress.org
+│   ├── class-vulnerable-versions.php  Alarm bij een Avada-/Builder-versie met een bekend kritiek lek
 │   ├── class-admin-bar.php            Toolbar-snelkoppeling + scan aan/uit-toggle
 │   ├── class-php-error-watcher.php    debug.log-monitor met herkomst-filtering
 │   ├── class-scan-watchdog.php        Melding als de geplande scans niet meer draaien
