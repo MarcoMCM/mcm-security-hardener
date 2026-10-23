@@ -97,16 +97,16 @@ class MCM_Admin_Page {
 	}
 
 	private function save_settings() {
-		$old_slug = $this->get_current_slug();
+		$old      = $this->get_current_settings();
 		$settings = MCM_Admin_Email_Lock::reconcile( $this->sanitize_input( $_POST ), isset( $_POST['admin_email'] ) );
 		update_option( self::OPTION_KEY, $settings );
 		MCM_Admin_Email_Lock::after_save();
-		$this->maybe_send_slug_change_mail( $old_slug, $settings );
+		$this->maybe_send_slug_change_mail( $old, $settings );
 		$this->redirect( 'saved' );
 	}
 
 	private function apply_rules() {
-		$old_slug = $this->get_current_slug();
+		$old      = $this->get_current_settings();
 		$settings = MCM_Admin_Email_Lock::reconcile( $this->sanitize_input( $_POST ), isset( $_POST['admin_email'] ) );
 		update_option( self::OPTION_KEY, $settings );
 		MCM_Admin_Email_Lock::after_save();
@@ -114,7 +114,7 @@ class MCM_Admin_Page {
 		$config_result   = MCM_WPConfig_Manager::write( $settings );
 		$htaccess_result = MCM_Htaccess_Manager::write( $settings );
 
-		$this->maybe_send_slug_change_mail( $old_slug, $settings );
+		$this->maybe_send_slug_change_mail( $old, $settings );
 
 		if ( is_wp_error( $htaccess_result ) && 'reverted' === $htaccess_result->get_error_code() ) {
 			$this->redirect( 'htaccess_reverted' );
@@ -127,21 +127,31 @@ class MCM_Admin_Page {
 	}
 
 	/**
-	 * Huidige (opgeslagen) login-slug uit de DB.
+	 * Huidige (opgeslagen) instellingen uit de DB, vóór deze opslag.
 	 */
-	private function get_current_slug() {
+	private function get_current_settings() {
 		$current = get_option( self::OPTION_KEY, [] );
-		return isset( $current['login_slug'] ) ? (string) $current['login_slug'] : '';
+		return is_array( $current ) ? $current : [];
 	}
 
 	/**
-	 * Wrapper: alleen mailen als de toggle aan staat én de slug daadwerkelijk
-	 * is gewijzigd. Wordt aangeroepen na save/apply.
+	 * Mailt de nieuwe login-URL naar de ontvangers. Wordt aangeroepen na
+	 * save/apply, en mailt alleen als:
+	 *   - "Auto-mail bij wijziging login-slug" al aan stond vóór deze opslag,
+	 *     en nog steeds aan staat;
+	 *   - de slug bij deze opslag echt is veranderd.
+	 *
+	 * Het aanzetten zelf stuurt dus niets, ook niet als in dezelfde opslag de
+	 * slug verandert. Aanleiding: Marco, 23 okt 2026 — bij het aanvinken ging
+	 * er al een mail uit en bij de daaropvolgende slug-wijziging nóg een. Wie
+	 * de site gebruikt, kent de URL al; pas een latere wijziging is nieuws.
+	 * Wil je de huidige URL meteen sturen: knop "Verstuur alleen login-URL".
 	 */
-	private function maybe_send_slug_change_mail( $old_slug, $settings ) {
-		if ( empty( $settings['mail_admins_on_slug_change'] ) ) {
+	private function maybe_send_slug_change_mail( array $old, array $settings ) {
+		if ( empty( $old['mail_admins_on_slug_change'] ) || empty( $settings['mail_admins_on_slug_change'] ) ) {
 			return;
 		}
+		$old_slug = isset( $old['login_slug'] ) ? (string) $old['login_slug'] : '';
 		$new_slug = isset( $settings['login_slug'] ) ? (string) $settings['login_slug'] : '';
 		if ( $old_slug === $new_slug ) {
 			return; // niets veranderd.
@@ -163,6 +173,13 @@ class MCM_Admin_Page {
 		$settings = MCM_Admin_Email_Lock::reconcile( $this->sanitize_input( $_POST ), isset( $_POST['admin_email'] ) );
 		update_option( self::OPTION_KEY, $settings );
 		MCM_Admin_Email_Lock::after_save();
+
+		// Zonder eigen login-URL logt de klant in zoals altijd: een mail met
+		// wp-login.php is geen nieuws. De knop staat dan uit; dit vangt ook een
+		// formulier op dat de knop toch meestuurt.
+		if ( empty( $settings['login_slug'] ) ) {
+			$this->redirect( 'mail_no_slug' );
+		}
 
 		$sent = $this->send_login_url_now();
 		if ( 0 === $sent ) {
@@ -707,6 +724,13 @@ class MCM_Admin_Page {
 
 			<form method="post">
 				<?php wp_nonce_field( 'mcm_security_save', self::NONCE ); ?>
+				<?php
+				// Enter in een tekstveld drukt de eerste knop van het formulier in.
+				// Dat was "Profiel Basic toepassen" (en de login-URL werd niet
+				// opgeslagen). Deze onzichtbare knop maakt Enter gewoon Opslaan.
+				?>
+				<button type="submit" name="mcm_security_action" value="save" tabindex="-1" aria-hidden="true"
+					style="position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;">Opslaan</button>
 
 				<?php $this->render_profiles_section(); ?>
 
@@ -1589,15 +1613,25 @@ class MCM_Admin_Page {
 				$this->render_toggle(
 					'mail_admins_on_slug_change',
 					'Auto-mail bij wijziging login-slug',
-					'Stuurt automatisch de nieuwe login-URL naar bovenstaande ontvangers wanneer de slug verandert (alleen bij <em>Opslaan</em> of <em>Opslaan &amp; Toepassen</em>, niet bij <em>Activeer Alles</em>).',
+					'Stuurt automatisch de nieuwe login-URL naar bovenstaande ontvangers wanneer de slug <strong>later</strong> verandert (bij <em>Opslaan</em> of <em>Opslaan &amp; Toepassen</em>, niet bij <em>Activeer Alles</em>). Aanzetten zelf stuurt niets, ook niet als je in dezelfde opslag de slug wijzigt. De huidige URL meteen sturen: <em>Verstuur alleen login-URL</em>.',
 					$settings
 				);
 				?>
 			</table>
 
+			<?php
+			// Opslaan staat hier bewust als hoofdknop: wie ontvangers aanvinkt,
+			// klikte anders op de enige knop in de buurt, "Verstuur alleen
+			// login-URL", en die slaat op én mailt meteen (Marco, 23 okt 2026).
+			$has_slug = ! empty( $settings['login_slug'] );
+			?>
 			<div class="mcm-actions" style="margin-top:10px;">
+				<button type="submit" name="mcm_security_action" value="save" class="button button-primary">
+					Opslaan
+				</button>
 				<?php if ( $ba_active && $ba_plain ) : ?>
-					<button type="submit" name="mcm_security_action" value="send_access_mail" class="button button-primary">
+					<button type="submit" name="mcm_security_action" value="send_access_mail" class="button button-secondary"
+						onclick="return confirm('Dit verstuurt nu een mail met de toegangsgegevens (Basic Auth + login-URL) naar de aangevinkte ontvangers. Doorgaan?');">
 						Verstuur toegangsmail (Basic Auth + login-URL)
 					</button>
 				<?php elseif ( $ba_active && ! $ba_plain ) : ?>
@@ -1605,10 +1639,18 @@ class MCM_Admin_Page {
 						Basic Auth wachtwoord >30 min uit cache &mdash; ga naar <strong>Staging wachtwoordbeveiliging</strong> en klik <em>Regenereer</em> om opnieuw te kunnen mailen.
 					</span>
 				<?php endif; ?>
-				<button type="submit" name="mcm_security_action" value="send_login_url_now" class="button <?php echo $ba_active ? 'button-secondary' : 'button-primary'; ?>">
+				<button type="submit" name="mcm_security_action" value="send_login_url_now" class="button button-secondary"
+					<?php disabled( ! $has_slug ); ?>
+					onclick="return confirm('Dit verstuurt nu een mail met de login-URL naar de aangevinkte ontvangers. Doorgaan?');">
 					Verstuur alleen login-URL
 				</button>
 			</div>
+			<p class="description" style="margin-top:8px;">
+				<em>Opslaan</em> verstuurt niets. Een mail gaat alleen uit als je op een verstuurknop klikt, of automatisch als de login-URL later verandert terwijl &ldquo;Auto-mail bij wijziging login-slug&rdquo; al aan stond.
+				<?php if ( ! $has_slug ) : ?>
+					Er is nog geen eigen login-URL: klanten loggen in zoals altijd, dus er valt nog niets te versturen.
+				<?php endif; ?>
+			</p>
 			<?php if ( ! $ba_active ) : ?>
 				<p class="description" style="margin-top:8px;">
 					Basic Auth staat uit &mdash; alleen de WordPress login-URL kan worden gemaild.
@@ -2850,7 +2892,7 @@ class MCM_Admin_Page {
 			'htaccess_reverted' => [ 'error', '<strong>.htaccess teruggedraaid.</strong> Na het wegschrijven reageerde de homepage niet meer goed (5xx, time-out of 403), dus de vorige .htaccess is direct teruggezet. wp-config.php en de instellingen zijn wel opgeslagen. Er is een mail met details verstuurd.' ],
 			'debug_off' => [ 'success', '<strong>WP_DEBUG staat uit.</strong> De instelling is naar wp-config.php geschreven.' ],
 			'debug_off_error' => [ 'error', 'WP_DEBUG kon niet worden uitgezet: wp-config.php is niet schrijfbaar of de wijziging werd geweigerd door de syntax-check. Er is niets gewijzigd.' ],
-			'saved'   => [ 'success', 'Instellingen opgeslagen. Klik "Opslaan & Toepassen" om ze te activeren in de bestanden.' ],
+			'saved'   => [ 'success', 'Instellingen opgeslagen. Klik "Opslaan & Toepassen" om de regels voor wp-config.php en .htaccess te activeren. Een gewijzigde login-URL werkt al meteen.' ],
 			'applied' => [ 'success', 'Regels zijn geschreven naar wp-config.php en .htaccess.' ],
 			'all_enabled' => [ 'success', 'Alle beveiligingsopties zijn geactiveerd en toegepast op wp-config.php en .htaccess.' ],
 			'removed' => [ 'warning', 'Alle MCM Security regels zijn verwijderd uit wp-config.php en .htaccess.' ],
@@ -2863,6 +2905,7 @@ class MCM_Admin_Page {
 			'profile_switched' => [ 'success', 'Profiel geswitcht via de mismatch-melding.' ],
 			'error'   => [ 'error', 'Er is een fout opgetreden. Controleer of de bestanden schrijfbaar zijn.' ],
 			'mail_none' => [ 'warning', 'Geen mail verstuurd: er zijn geen ontvangers aangevinkt of geen geldige beheerders gevonden.' ],
+			'mail_no_slug' => [ 'warning', 'Geen mail verstuurd: er is nog geen eigen login-URL, dus klanten loggen in zoals altijd. De instellingen zijn wel opgeslagen.' ],
 			'basic_auth_activated' => [ 'success', '<strong>Basic Auth geactiveerd</strong> &mdash; staging is nu wachtwoord-beveiligd. Bewaar het wachtwoord direct, of mail het naar je admins.' ],
 			'basic_auth_deactivated' => [ 'warning', 'Basic Auth uitgeschakeld &mdash; staging is weer voor iedereen toegankelijk.' ],
 			'basic_auth_regenerated' => [ 'success', 'Nieuw wachtwoord gegenereerd. Oude wachtwoord werkt niet meer.' ],

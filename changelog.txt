@@ -1,5 +1,37 @@
 MCM Security Hardener — Changelog
 
+= 1.35.1 (2026-10-23) =
+* Fix: "Klant toegang & mail" mailt niet meer bij het aanvinken van een
+  ontvanger, alleen nog als de login-URL echt verandert
+  (class-admin-page.php)
+  - Aanleiding: Marco, 23 okt 2026. Na het aanvinken van een klant als
+    ontvanger kreeg die meteen een mail met de login-URL, terwijl de inlog
+    nog gewoon was zoals vóór de installatie. Bij de URL-wijziging daarna
+    kwam er nog een.
+  - Oorzaak: met Basic Auth uit was "Verstuur alleen login-URL" de enige
+    knop in de sectie (blauw, direct onder de ontvangers; Opslaan staat
+    bovenaan de pagina). Die knop slaat het formulier op én mailt meteen,
+    ook zonder eigen login-URL: dan staat er gewoon wp-login.php in.
+  - Nu: een eigen Opslaan-knop in de sectie (hoofdknop, verstuurt niets).
+    De verstuurknoppen zijn secundair en vragen eerst om bevestiging.
+    Zonder eigen login-URL staat "Verstuur alleen login-URL" uit en
+    weigert de server te mailen (melding "Geen mail verstuurd: er is nog
+    geen eigen login-URL"); de aangevinkte ontvangers worden wel bewaard.
+  - Automatische mail: alleen als "Auto-mail bij wijziging login-slug" al
+    aan stond vóór de opslag, nog aan staat, en de login-URL nu echt
+    verandert. Aanzetten zelf stuurt niets, ook niet samen met een
+    URL-wijziging; uitzetten ook niet. maybe_send_slug_change_mail()
+    krijgt daarvoor de oude instellingen (get_current_settings()).
+  - Melding na Opslaan zei "Klik Opslaan & Toepassen om ze te activeren".
+    Dat geldt voor wp-config.php en .htaccess, niet voor de login-URL: die
+    werkt direct na Opslaan. De melding zegt dat nu.
+  - Enter in een tekstveld (bijv. de login-URL) drukte de eerste knop van
+    het formulier in: "Profiel Basic toepassen". Een onzichtbare
+    Opslaan-knop vooraan maakt Enter nu gewoon Opslaan.
+  - Getest lokaal: 16 controles (o.a. precies Marco's volgorde), in een
+    transactie die is teruggedraaid. Geen migratie, geen nieuwe
+    instellingen.
+
 = 1.35.0 (2026-10-23) =
 * Nieuw: alarm bij een Avada-/Avada Builder-versie met een bekend, ernstig
   lek (class-vulnerable-versions.php, class-admin-page.php)
