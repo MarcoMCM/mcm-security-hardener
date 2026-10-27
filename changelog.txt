@@ -1,5 +1,15 @@
 MCM Security Hardener — Changelog
 
+= 1.35.2 (2026-10-27) =
+* Verbeterd: bevindingen-melding (wp-config-controle) heeft nu TWEE knoppen
+  i.p.v. alleen "Klopt, dit is bewust":
+  - "Klopt, dit is bewust" -> markeert als veilig (negeren), zoals voorheen
+  - "Dit klopt niet - bekijken" -> gaat naar de wp-config-sectie in de plugin,
+    waar je de bevinding in context ziet en kunt aanpakken
+* De wp-config-mail bevat nu een directe link naar de beheer-/bekijk-plek
+* Bevestigingsmelding toegevoegd na negeren/herstellen van een bevinding
+  (voorheen een stille herlaad, zonder feedback of hint waar je het terugdraait)
+
 = 1.35.1 (2026-10-23) =
 * Fix: "Klant toegang & mail" mailt niet meer bij het aanvinken van een
   ontvanger, alleen nog als de login-URL echt verandert

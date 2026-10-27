@@ -287,9 +287,10 @@ class MCM_Config_Check {
 			$body .= sprintf( "%d. %s\n   %s\n\n", $i + 1, $f['relpath'], $f['reason'] );
 		}
 		$body .= "----\n";
-		$body .= "Is het bewust? Klik dan in wp-admin op \"Klopt, dit is bewust\" (Extra → MCM Security,\n";
-		$body .= "sectie wp-config-controle). Je krijgt pas weer een melding als de waarde verandert.\n";
-		$body .= "Deze mail komt alleen als er een bevinding bij komt.";
+		$body .= "Bewust? Markeer het dan in wp-admin als \"Klopt, dit is bewust\".\n";
+		$body .= "Klopt het niet? Bekijk en beheer de bevindingen hier:\n";
+		$body .= admin_url( 'tools.php?page=mcm-security#mcm-config-check' ) . "\n\n";
+		$body .= "Je krijgt pas weer een melding als er een waarde verandert of bijkomt.";
 
 		MCM_Notifier::email( sprintf( 'wp-config: %d instelling(en) om te controleren', count( $findings ) ), $body );
 	}
@@ -302,13 +303,17 @@ class MCM_Config_Check {
 		if ( empty( $findings ) ) {
 			return;
 		}
-		$items = '';
+		$view_url = admin_url( 'tools.php?page=mcm-security#mcm-config-check' );
+		$items    = '';
 		foreach ( $findings as $f ) {
 			$items .= sprintf(
-				'<li><code>%s</code> &mdash; %s <a href="%s" class="button button-small">Klopt, dit is bewust</a></li>',
+				'<li style="margin-bottom:8px;"><code>%s</code> &mdash; %s<br>'
+					. '<a href="%s" class="button button-small">Klopt, dit is bewust</a> '
+					. '<a href="%s" class="button button-small">Dit klopt niet &mdash; bekijken</a></li>',
 				esc_html( $f['relpath'] ),
 				esc_html( $f['reason'] ),
-				esc_url( MCM_Finding_Ignore::ignore_url( self::SOURCE, $f ) )
+				esc_url( MCM_Finding_Ignore::ignore_url( self::SOURCE, $f ) ),
+				esc_url( $view_url )
 			);
 		}
 		printf(

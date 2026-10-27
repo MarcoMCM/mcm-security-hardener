@@ -2922,6 +2922,8 @@ class MCM_Admin_Page {
 			'vulnerable_versions_check_done' => [ 'success', 'Controle op bekende lekken is uitgevoerd. Zie de sectie "Bekende lekken in Avada".' ],
 			'anomaly_enabled' => [ 'success', 'Anomalie-scan staat nu AAN.' ],
 			'anomaly_disabled' => [ 'warning', 'Anomalie-scan staat nu UIT. Vergeet niet \'m na je werk weer aan te zetten (rode knop in de toolbar).' ],
+			'finding_ignored' => [ 'success', 'Bevinding gemarkeerd als <strong>bewust/akkoord</strong> &mdash; hij komt niet meer terug in de lijst en de mail. Terugdraaien kan via <em>Genegeerde bevindingen</em> onderaan de betreffende sectie.' ],
+			'finding_unignored' => [ 'success', 'Markering ingetrokken &mdash; de bevinding wordt bij de volgende scan weer getoond.' ],
 		];
 
 		if ( 'audit_display_fixed' === $status ) {
