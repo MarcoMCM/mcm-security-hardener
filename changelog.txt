@@ -1,5 +1,37 @@
 MCM Security Hardener — Changelog
 
+= 1.35.3 (2026-11-16) =
+* Fix: geen vals alarm meer over wp-includes/version.php op een
+  Nederlandse site na een automatische WordPress-update
+  (class-core-integrity-scanner.php)
+  - Aanleiding: pensioenfonds-sagittarius.nl, 16 nov 2026. Het
+    securityrapport van Wizzbit meldde "core-integriteit" (severity high)
+    voor alleen wp-includes/version.php. WordPress had zichzelf op 28 okt
+    automatisch bijgewerkt van 7.1.3 naar 7.1.4 en daarbij de Engelse
+    versie van dat bestand neergezet (md5 edbd5ac8… = officieel en_US).
+    De Nederlandse versie is precies hetzelfde bestand met één regel extra:
+    $wp_local_package = 'nl_NL';. Onze eigen scan vergelijkt ook met de
+    lijst van de site-taal (nl_NL) en zou dus hetzelfde melden, na elke
+    auto-update op elke Nederlandse site.
+  - Nagegaan voor 7.1.4 via api.wordpress.org: buiten wp-content is
+    version.php het enige bestand dat tussen nl_NL en en_US verschilt.
+  - Nu: alleen voor wp-includes/version.php telt ook de officiële versie
+    van dezelfde WordPress-versie in en_US, in de taal uit
+    $wp_local_package en in de site-taal als "in orde". Dat zijn allemaal
+    bestanden van WordPress.org zelf; een aangepast bestand matcht geen
+    enkele. Elk ander kernbestand moet nog steeds exact gelijk zijn aan de
+    lijst van de site-taal.
+  - De extra lijst wordt alleen opgehaald als version.php afwijkt. Op een
+    gewone site blijft het bij één aanvraag aan WordPress.org per scan.
+  - Kan WordPress.org de extra lijst niet leveren, dan blijft de melding
+    staan (liever een melding te veel dan een hack missen).
+  - Opgehaalde lijsten worden per scan onthouden, zodat dezelfde taal niet
+    twee keer wordt opgevraagd.
+  - Getest: tests/core-integrity-test.php, 13 gevallen met nagebootste
+    WordPress en checksum-API (o.a. het geval van de pensioenfondssite, een
+    aangepaste version.php, een ander afwijkend bestand en WordPress.org
+    onbereikbaar). Niet getest op een echte site.
+
 = 1.35.2 (2026-10-27) =
 * Verbeterd: bevindingen-melding (wp-config-controle) heeft nu TWEE knoppen
   i.p.v. alleen "Klopt, dit is bewust":

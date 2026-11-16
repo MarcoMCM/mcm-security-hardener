@@ -25,6 +25,14 @@
  *   - Wekelijkse wp-cron scan + handmatige "Nu scannen"-knop in admin.
  *   - Locale-fallback: probeert eerst de site-locale, valt terug op en_US
  *     als de officiële checksums voor die locale niet beschikbaar zijn.
+ *   - Eén uitzondering: wp-includes/version.php (zie LOCALE_VARIANT_FILES).
+ *     Het Nederlandse pakket heeft daar één regel extra
+ *     (`$wp_local_package = 'nl_NL';`); verder is het bestand gelijk aan de
+ *     Engelse versie. Een automatische WordPress-update zet soms de Engelse
+ *     versie neer op een Nederlandse site. Dat is geen hack. Voor dit ene
+ *     bestand telt daarom ook de officiële checksum van dezelfde versie in
+ *     en_US (en in de taal uit $wp_local_package) als "in orde". Alle andere
+ *     bestanden moeten exact gelijk zijn aan de lijst van de site-locale.
  *   - Mailt bij elke afwijking (altijd HIGH — een core-bestand hoort
  *     nooit te wijzigen buiten een WordPress-update om). Anti-spam via
  *     dezelfde hash-vergelijking als de andere scanners.
@@ -51,6 +59,28 @@ class MCM_Core_Integrity_Scanner {
 	const OPTION_RESULTS        = 'mcm_core_integrity_scan_results';
 	const OPTION_LAST_MAIL_HASH = 'mcm_core_integrity_last_mailed_hash';
 	const CHECKSUMS_URL         = 'https://api.wordpress.org/core/checksums/1.0/';
+
+	/**
+	 * Kernbestanden die per taalpakket officieel verschillen. Voor deze
+	 * bestanden is elke officiële variant van dezelfde WP-versie goed
+	 * (site-locale, en_US, of de taal uit $wp_local_package).
+	 *
+	 * Gecontroleerd voor 7.1.4 (16 nov 2026): buiten wp-content is
+	 * version.php het enige bestand dat tussen nl_NL en en_US verschilt.
+	 * Aanleiding: pensioenfonds-sagittarius.nl, auto-update 7.1.3 -> 7.1.4
+	 * op 28 okt 2026 zette de en_US-versie neer; de securityscan van Wizzbit
+	 * meldde dat als "core-integriteit", severity high.
+	 */
+	const LOCALE_VARIANT_FILES = [ 'wp-includes/version.php' ];
+
+	/**
+	 * Checksums die tijdens deze request al zijn opgehaald, per
+	 * "versie|locale". false = ophalen mislukt. Zo kost de extra controle
+	 * van version.php geen tweede aanvraag voor dezelfde locale.
+	 *
+	 * @var array<string,array|false>
+	 */
+	private static $checksum_cache = [];
 
 	public function __construct() {
 		// 'mcm_weekly' wordt ook door andere scanners geregistreerd; de
@@ -105,28 +135,84 @@ class MCM_Core_Integrity_Scanner {
 	 * @return array<string,string>|WP_Error relpath => md5, of WP_Error bij falen.
 	 */
 	private static function fetch_checksums() {
-		global $wp_version;
-
 		foreach ( array_unique( [ get_locale(), 'en_US' ] ) as $locale ) {
-			$url = add_query_arg(
-				[ 'version' => $wp_version, 'locale' => $locale ],
-				self::CHECKSUMS_URL
-			);
-
-			$response = wp_remote_get( $url, [ 'timeout' => 15 ] );
-			if ( is_wp_error( $response ) ) {
-				continue;
-			}
-			if ( 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
-				continue;
-			}
-			$body = json_decode( wp_remote_retrieve_body( $response ), true );
-			if ( ! empty( $body['checksums'] ) && is_array( $body['checksums'] ) ) {
-				return $body['checksums'];
+			$checksums = self::fetch_checksums_for_locale( $locale );
+			if ( is_array( $checksums ) ) {
+				return $checksums;
 			}
 		}
 
 		return new WP_Error( 'mcm_core_checksums_unavailable', 'Kon geen checksums ophalen bij WordPress.org.' );
+	}
+
+	/**
+	 * Haalt de officiële checksum-lijst op voor de geïnstalleerde versie in
+	 * één locale. Het resultaat (ook een mislukking) wordt per request
+	 * onthouden.
+	 *
+	 * @param string $locale Bv. 'nl_NL' of 'en_US'.
+	 * @return array<string,string>|false relpath => md5, of false bij falen.
+	 */
+	private static function fetch_checksums_for_locale( $locale ) {
+		global $wp_version;
+
+		$key = $wp_version . '|' . $locale;
+		if ( array_key_exists( $key, self::$checksum_cache ) ) {
+			return self::$checksum_cache[ $key ];
+		}
+
+		$result = false;
+		$url    = add_query_arg(
+			[ 'version' => rawurlencode( $wp_version ), 'locale' => rawurlencode( $locale ) ],
+			self::CHECKSUMS_URL
+		);
+
+		$response = wp_remote_get( $url, [ 'timeout' => 15 ] );
+		if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
+			$body = json_decode( wp_remote_retrieve_body( $response ), true );
+			if ( ! empty( $body['checksums'] ) && is_array( $body['checksums'] ) ) {
+				$result = $body['checksums'];
+			}
+		}
+
+		self::$checksum_cache[ $key ] = $result;
+		return $result;
+	}
+
+	/**
+	 * Is dit bestand gelijk aan de officiële versie van dezelfde WP-versie
+	 * in een andere taal? Alleen voor LOCALE_VARIANT_FILES.
+	 *
+	 * Geprobeerd: en_US, de taal uit $wp_local_package (staat in
+	 * version.php zelf) en de site-locale. Elke kandidaat is een bestand
+	 * dat WordPress.org zelf uitlevert; een aangepast bestand matcht er
+	 * geen enkele. Lukt het ophalen niet, dan blijft de bevinding staan.
+	 *
+	 * @param string $relpath    Bv. 'wp-includes/version.php'.
+	 * @param string $actual_md5 md5 van het bestand op de server.
+	 * @return bool
+	 */
+	private static function matches_other_official_locale( $relpath, $actual_md5 ) {
+		global $wp_local_package;
+
+		$locales = [ 'en_US' ];
+		if ( is_string( $wp_local_package ) && preg_match( '/^[a-z]{2,3}(?:_[A-Za-z0-9]+)*$/', $wp_local_package ) ) {
+			$locales[] = $wp_local_package;
+		}
+		$locales[] = get_locale();
+
+		foreach ( array_unique( $locales ) as $locale ) {
+			$checksums = self::fetch_checksums_for_locale( $locale );
+			if ( is_array( $checksums )
+				&& isset( $checksums[ $relpath ] )
+				&& is_string( $checksums[ $relpath ] )
+				&& hash_equals( $checksums[ $relpath ], $actual_md5 )
+			) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -160,6 +246,14 @@ class MCM_Core_Integrity_Scanner {
 
 			$actual_md5 = md5_file( $path );
 			if ( false === $actual_md5 || $actual_md5 !== $expected_md5 ) {
+				// Alleen voor version.php: de officiële versie in een andere
+				// taal (meestal en_US na een auto-update) is ook goed.
+				if ( false !== $actual_md5
+					&& in_array( $relpath, self::LOCALE_VARIANT_FILES, true )
+					&& self::matches_other_official_locale( $relpath, $actual_md5 )
+				) {
+					continue;
+				}
 				$findings[] = self::build_finding( $relpath, $path, $abspath, 'Kernbestand wijkt af van de officiële WordPress-versie' );
 			}
 		}
