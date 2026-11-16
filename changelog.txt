@@ -1,5 +1,31 @@
 MCM Security Hardener — Changelog
 
+= 1.36.0 (2026-11-16) =
+* Nieuw: updates komen voortaan van de eigen server, niet meer van GitHub
+  (mcm-security-hardener.php)
+  - Aanleiding: Marco, 16 nov 2026. Sinds 23 okt gaat alle MCM-code naar
+    git.mcmwebsites.nl (Forgejo), maar de sites vroegen hun updates nog
+    aan GitHub. Daardoor moest elke update nog als GitHub-Release
+    gepubliceerd worden. Voorstel: werk/MCM/eigen plugins/
+    voorstel-update-adres-eigen-server-2026-10-23.md.
+  - Nu: plugin-update-checker leest om de ~12 uur
+    https://git.mcmwebsites.nl/updates/mcm-security-hardener/info.json
+    (versie, downloadlink, changelog). Forgejo zelf blijft dicht; alleen de
+    map /updates/ is openbaar (Caddy op de VPS, root /srv/updates).
+  - setBranch('main') is weg: die bestaat alleen bij de GitHub-variant van
+    plugin-update-checker en zou met info.json een fatale fout geven.
+  - Headers: Update URI wijst naar git.mcmwebsites.nl/updates, Plugin URI
+    naar mcmwebsites.nl (de Forgejo-pagina vraagt om in te loggen).
+  - Een release zet je neer met werk/MCM/eigen plugins/tools/
+    release-update-server.sh: bouwt de ZIP uit de tag (git archive),
+    controleert vendor/ en php -l, schrijft info.json, zet beide met scp
+    op de VPS en controleert daarna versie en md5 via https.
+  - Let op: deze versie moet nog één keer via het oude kanaal (GitHub-
+    Release of met de hand via MainWP) naar de sites. Pas daarna kijken ze
+    op het nieuwe adres.
+* Bevat ook 1.35.3 (version.php-fix), die niet als GitHub-Release is
+  uitgebracht.
+
 = 1.35.3 (2026-11-16) =
 * Fix: geen vals alarm meer over wp-includes/version.php op een
   Nederlandse site na een automatische WordPress-update

@@ -1,12 +1,12 @@
 <?php
 /**
  * Plugin Name: MCM Security Hardener
- * Plugin URI:  https://github.com/MarcoMCM/mcm-security-hardener
+ * Plugin URI:  https://mcmwebsites.nl
  * Description: Schrijft security-hardening regels naar wp-config.php en .htaccess, gebaseerd op SecuPress Pro-niveau instellingen.
- * Version: 1.35.3
+ * Version: 1.36.0
  * Author: MCM Websites
  * Author URI: https://mcmwebsites.nl
- * Update URI: https://github.com/MarcoMCM/mcm-security-hardener
+ * Update URI: https://git.mcmwebsites.nl/updates/mcm-security-hardener/
  * Text Domain: mcm-security-hardener
  * Requires at least: 5.6
  * Requires PHP: 7.4
@@ -16,19 +16,23 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MCM_SECURITY_VERSION', '1.35.3' );
+define( 'MCM_SECURITY_VERSION', '1.36.0' );
 define( 'MCM_SECURITY_FILE', __FILE__ );
 define( 'MCM_SECURITY_DIR', plugin_dir_path( __FILE__ ) );
 
-// Self-update via publieke GitHub repo. Pikt nieuwste GitHub-release op
-// en biedt 'm aan via WP's normale update-flow (en dus ook MainWP).
+// Updates via de eigen server (sinds 1.36.0, daarvoor GitHub-Releases).
+// De plugin leest om de ~12 uur info.json (versie + downloadlink) en biedt
+// een nieuwere versie aan via WP's normale update-flow (en dus ook MainWP).
+// info.json en de ZIP worden neergezet door
+// werk/MCM/eigen plugins/tools/release-update-server.sh (StorageBox).
+// Geen setBranch(): die bestaat alleen bij de GitHub-variant van PUC en
+// zou hier een fatale fout geven.
 require_once MCM_SECURITY_DIR . 'vendor/plugin-update-checker/plugin-update-checker.php';
 $mcm_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
-	'https://github.com/MarcoMCM/mcm-security-hardener/',
+	'https://git.mcmwebsites.nl/updates/mcm-security-hardener/info.json',
 	MCM_SECURITY_FILE,
 	'mcm-security-hardener'
 );
-$mcm_update_checker->setBranch( 'main' );
 
 require_once MCM_SECURITY_DIR . 'includes/class-notifier.php';
 require_once MCM_SECURITY_DIR . 'includes/class-finding-ignore.php';

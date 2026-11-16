@@ -48,13 +48,13 @@ WordPress security-hardening plugin voor de klantensites van **MCM Websites**. V
 
 ### 🚀 Distributie
 
-- **GitHub self-update**: de plugin pakt nieuwe releases automatisch op via [`plugin-update-checker`](https://github.com/YahnisElsts/plugin-update-checker). Geen wp.org-account nodig, geen handmatig verspreiden. Beheer via MainWP werkt zoals bij elke andere WP-plugin.
+- **Self-update via de eigen server** (sinds 1.36.0, daarvoor GitHub-Releases): de plugin leest om de ~12 uur `https://git.mcmwebsites.nl/updates/mcm-security-hardener/info.json` via [`plugin-update-checker`](https://github.com/YahnisElsts/plugin-update-checker) en biedt een nieuwere versie aan in WP-admin en MainWP. Forgejo zelf blijft dicht; alleen de map `/updates/` is openbaar. Een release zet je neer met `werk/MCM/eigen plugins/tools/release-update-server.sh` (StorageBox): dat bouwt de ZIP uit de tag, controleert hem, schrijft `info.json` en zet beide op de server. Geen GitHub-Release meer nodig.
 
 ---
 
 ## Installatie
 
-1. Download de laatste zip via de [Releases-pagina](https://github.com/MarcoMCM/mcm-security-hardener/releases)
+1. Download de laatste zip: de link staat in `https://git.mcmwebsites.nl/updates/mcm-security-hardener/info.json` (`download_url`), of neem `mcm-security-hardener.zip` uit `werk/MCM/eigen plugins/` op de StorageBox
 2. WP-admin → **Plugins → Nieuwe plugin → Bestand uploaden** (of via MainWP voor meerdere sites tegelijk)
 3. Activeer
 4. **Tools → MCM Security** → kies een profiel (Basic / Standard / Strict / Staging) of stel handmatig in
@@ -173,10 +173,10 @@ mcm-security-hardener/
 │   ├── class-finding-ignore.php        "Markeer als veilig" — gedeelde ignore-lijst
 │   └── class-notifier.php             Centrale email/notice-helper
 ├── tests/                             Regressietests (niet in de release-zip)
-└── vendor/plugin-update-checker/      GitHub self-update (YahnisElsts/PUC v5)
+└── vendor/plugin-update-checker/      Self-update via info.json op de eigen server (YahnisElsts/PUC v5)
 ```
 
-Tests draaien vanuit de pluginmap met `php tests/wpconfig-manager-test.php` (exit-code 0 = alles goed).
+Tests draaien vanuit de pluginmap met `php tests/wpconfig-manager-test.php` en `php tests/core-integrity-test.php` (exit-code 0 = alles goed).
 
 ---
 
